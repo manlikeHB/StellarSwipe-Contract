@@ -26,7 +26,7 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: contracts/market
+          workspaces: stellar-swipe/market
       
       - name: Format check
         run: cd contracts/market && cargo fmt --check
