@@ -50,10 +50,10 @@ pub fn submit_signal(
     }
 
     // Validate asset pair
-    let asset_bytes = asset_pair.to_bytes();
-    let has_slash = asset_bytes.iter().any(|b| *b == b'/');
+   let asset_bytes = asset_pair.to_bytes();
+    let has_slash = asset_bytes.iter().any(|b| b == b'/');
     let len = asset_bytes.len();
-    if !has_slash || len < 3 || len > 20 {
+    if !has_slash || len < 5 || len > 20 {
         return Err(Error::InvalidAssetPair);
     }
 
