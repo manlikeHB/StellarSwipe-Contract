@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, Map};
+use soroban_sdk::{contracttype, Env, Address, Map};
 
 pub const DEFAULT_MINIMUM_STAKE: i128 = 100_000_000; // 100 XLM
 pub const UNSTAKE_LOCK_PERIOD: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
@@ -22,7 +22,7 @@ pub enum ContractError {
 
 /// Stake XLM for a provider
 pub fn stake(
-    env: &Env,
+    _env: &Env,
     storage: &mut Map<Address, StakeInfo>,
     provider: &Address,
     amount: i128,
@@ -53,9 +53,7 @@ pub fn unstake(
     storage: &mut Map<Address, StakeInfo>,
     provider: &Address,
 ) -> Result<i128, ContractError> {
-    let mut info = storage
-        .get(provider.clone())
-        .ok_or(ContractError::NoStakeFound)?;
+    let mut info = storage.get(provider.clone()).ok_or(ContractError::NoStakeFound)?;
     let now = env.ledger().timestamp();
 
     if now < info.locked_until {
@@ -80,9 +78,7 @@ pub fn record_signal(
     storage: &mut Map<Address, StakeInfo>,
     provider: &Address,
 ) -> Result<(), ContractError> {
-    let mut info = storage
-        .get(provider.clone())
-        .ok_or(ContractError::NoStakeFound)?;
+    let mut info = storage.get(provider.clone()).ok_or(ContractError::NoStakeFound)?;
     let now = env.ledger().timestamp();
 
     info.last_signal_time = now;
@@ -97,9 +93,7 @@ pub fn can_submit_signal(
     storage: &Map<Address, StakeInfo>,
     provider: &Address,
 ) -> Result<(), ContractError> {
-    let info = storage
-        .get(provider.clone())
-        .ok_or(ContractError::NoStakeFound)?;
+    let info = storage.get(provider.clone()).ok_or(ContractError::NoStakeFound)?;
 
     if info.amount < DEFAULT_MINIMUM_STAKE {
         return Err(ContractError::BelowMinimumStake);
@@ -110,9 +104,9 @@ pub fn can_submit_signal(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use soroban_sdk::testutils::Ledger;
+      use super::*;
     use soroban_sdk::{testutils::Address as TestAddress, Address, Env, Map};
+    use soroban_sdk::testutils::Ledger;
 
     fn setup_env() -> Env {
         Env::default()
@@ -168,8 +162,7 @@ mod tests {
         );
 
         // Move timestamp beyond lock period
-        env.ledger()
-            .set_timestamp(env.ledger().timestamp() + UNSTAKE_LOCK_PERIOD + 1);
+        env.ledger().set_timestamp(env.ledger().timestamp() + UNSTAKE_LOCK_PERIOD + 1);
 
         // Now unstake should succeed
         let amount = unstake(&env, &mut storage, &provider).unwrap();
