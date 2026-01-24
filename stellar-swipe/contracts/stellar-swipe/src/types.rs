@@ -1,5 +1,3 @@
-#![no_std]
-
 use soroban_sdk::{contracttype, Address, String};
 
 #[contracttype]
@@ -23,7 +21,7 @@ pub enum SignalAction {
 pub struct Signal {
     pub id: u64,
     pub provider: Address,
-    pub asset_pair: String,     // e.g. "XLM/USDC"
+    pub asset_pair: String, // e.g. "XLM/USDC"
     pub action: SignalAction,
     pub price: i128,
     pub rationale: String,
