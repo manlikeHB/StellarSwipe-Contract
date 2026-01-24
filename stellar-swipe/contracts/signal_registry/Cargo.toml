@@ -1,5 +1,5 @@
 [package]
-name = "hello-world"
+name = "signal_registry"
 version = "0.0.0"
 edition = "2021"
 publish = false

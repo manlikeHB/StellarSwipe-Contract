@@ -6,7 +6,7 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Map
 
 use types::{Signal, SignalAction, SignalStats, SignalStatus};
 
-const MAX_EXPIRY_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
+const MAX_EXPIRY_SECONDS: u64 = 30 * 24 * 60 * 60;
 
 #[contract]
 pub struct SignalRegistry;
