@@ -105,12 +105,11 @@ pub fn submit_signal(
     Ok(next_id)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as TestAddress, Env, Map};
-    use crate::stake::{stake, StakeInfo, DEFAULT_MINIMUM_STAKE};
+    use soroban_sdk::{testutils::Address as TestAddress, Env, Map, String as SdkString};
+    use crate::stake::{stake, StakeInfo, DEFAULT_MINIMUM_STAKE, can_submit_signal};
 
     fn setup_env() -> Env {
         Env::default()
@@ -118,6 +117,10 @@ mod tests {
 
     fn sample_provider(env: &Env) -> Address {
         <Address as TestAddress>::generate(env)
+    }
+
+    fn sdk_string(s: &str) -> SdkString {
+        SdkString::from_slice(&Env::default(), s)
     }
 
     #[test]
@@ -136,17 +139,17 @@ mod tests {
             &mut signals,
             &stakes,
             &provider,
-            "XLM/USDC".to_string(),
+            sdk_string("XLM/USDC"),
             Action::Buy,
             120_000_000,
-            "Bullish on XLM".to_string(),
+            sdk_string("Bullish on XLM"),
         )
         .unwrap();
 
         assert_eq!(signal_id, 1);
         let stored = signals.get(signal_id).unwrap();
         assert_eq!(stored.provider, provider);
-        assert_eq!(stored.asset_pair, "XLM/USDC");
+        assert_eq!(stored.asset_pair.to_bytes(), sdk_string("XLM/USDC").to_bytes());
         assert_eq!(stored.action, Action::Buy);
         assert_eq!(stored.price, 120_000_000);
     }
@@ -163,10 +166,10 @@ mod tests {
             &mut signals,
             &stakes,
             &provider,
-            "XLM/USDC".to_string(),
+            sdk_string("XLM/USDC"),
             Action::Buy,
             120_000_000,
-            "Bullish on XLM".to_string(),
+            sdk_string("Bullish on XLM"),
         );
 
         assert_eq!(res, Err(Error::NoStake));
@@ -186,10 +189,10 @@ mod tests {
             &mut signals,
             &stakes,
             &provider,
-            "XLM/USDC".to_string(),
+            sdk_string("XLM/USDC"),
             Action::Buy,
             0,
-            "Bullish on XLM".to_string(),
+            sdk_string("Bullish on XLM"),
         );
 
         assert_eq!(res, Err(Error::InvalidPrice));
@@ -204,15 +207,16 @@ mod tests {
 
         stake(&env, &mut stakes, &provider, DEFAULT_MINIMUM_STAKE).unwrap();
 
+        // First signal
         let _ = submit_signal(
             &env,
             &mut signals,
             &stakes,
             &provider,
-            "XLM/USDC".to_string(),
+            sdk_string("XLM/USDC"),
             Action::Buy,
             120_000_000,
-            "Bullish".to_string(),
+            sdk_string("Bullish"),
         )
         .unwrap();
 
@@ -222,10 +226,10 @@ mod tests {
             &mut signals,
             &stakes,
             &provider,
-            "XLM/USDC".to_string(),
+            sdk_string("XLM/USDC"),
             Action::Buy,
             120_000_000,
-            "Bullish".to_string(),
+            sdk_string("Bullish"),
         );
 
         assert_eq!(res, Err(Error::DuplicateSignal));
