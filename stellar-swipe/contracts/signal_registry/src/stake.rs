@@ -11,7 +11,7 @@ pub struct StakeInfo {
     pub locked_until: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ContractError {
     InvalidStakeAmount,
     NoStakeFound,
@@ -39,7 +39,6 @@ pub fn stake(
 
     info.amount += amount;
 
-    // Ensure minimum stake is satisfied
     if info.amount < DEFAULT_MINIMUM_STAKE {
         return Err(ContractError::BelowMinimumStake);
     }
@@ -55,7 +54,6 @@ pub fn unstake(
     provider: &Address,
 ) -> Result<i128, ContractError> {
     let mut info = storage.get(provider.clone()).ok_or(ContractError::NoStakeFound)?;
-
     let now = env.ledger().timestamp();
 
     if now < info.locked_until {
@@ -102,4 +100,103 @@ pub fn can_submit_signal(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as TestAddress, Address, Env, Map};
+
+    fn setup_env() -> Env {
+        Env::default()
+    }
+
+    fn sample_provider(env: &Env) -> Address {
+        <Address as TestAddress>::generate(env)
+    }
+
+    #[test]
+    fn test_stake_accumulation_and_minimum() {
+        let env = setup_env();
+        let mut storage: Map<Address, StakeInfo> = Map::new(&env);
+        let provider = sample_provider(&env);
+
+        // First stake below minimum fails
+        assert_eq!(
+            stake(&env, &mut storage, &provider, 50_000_000),
+            Err(ContractError::BelowMinimumStake)
+        );
+
+        // Stake meeting minimum succeeds
+        assert!(stake(&env, &mut storage, &provider, 100_000_000).is_ok());
+        let info = storage.get(provider.clone()).unwrap();
+        assert_eq!(info.amount, 100_000_000);
+
+        // Additional stake accumulates
+        assert!(stake(&env, &mut storage, &provider, 50_000_000).is_ok());
+        let info = storage.get(provider.clone()).unwrap();
+        assert_eq!(info.amount, 150_000_000);
+    }
+
+    #[test]
+    fn test_unstake_before_and_after_lock() {
+        let env = setup_env();
+        let mut storage: Map<Address, StakeInfo> = Map::new(&env);
+        let provider = sample_provider(&env);
+
+        stake(&env, &mut storage, &provider, 100_000_000).unwrap();
+
+        // Locked because no signal yet (locked_until = 0, so actually allowed)
+        let unstake_result = unstake(&env, &mut storage, &provider);
+        assert_eq!(unstake_result.unwrap(), 100_000_000);
+
+        // Re-stake and simulate signal submission
+        stake(&env, &mut storage, &provider, 100_000_000).unwrap();
+        record_signal(&env, &mut storage, &provider).unwrap();
+
+        // Attempt unstake immediately should fail
+        assert_eq!(
+            unstake(&env, &mut storage, &provider),
+            Err(ContractError::StakeLocked)
+        );
+
+        // Move timestamp beyond lock period
+        env.ledger().set_timestamp(env.ledger().timestamp() + UNSTAKE_LOCK_PERIOD + 1);
+
+        // Now unstake should succeed
+        let amount = unstake(&env, &mut storage, &provider).unwrap();
+        assert_eq!(amount, 100_000_000);
+    }
+
+    #[test]
+    fn test_record_signal_updates_lock() {
+        let env = setup_env();
+        let mut storage: Map<Address, StakeInfo> = Map::new(&env);
+        let provider = sample_provider(&env);
+
+        stake(&env, &mut storage, &provider, 100_000_000).unwrap();
+        let before = env.ledger().timestamp();
+
+        record_signal(&env, &mut storage, &provider).unwrap();
+        let info = storage.get(provider.clone()).unwrap();
+
+        assert_eq!(info.last_signal_time, before);
+        assert_eq!(info.locked_until, before + UNSTAKE_LOCK_PERIOD);
+    }
+
+    #[test]
+    fn test_can_submit_signal() {
+        let env = setup_env();
+        let mut storage: Map<Address, StakeInfo> = Map::new(&env);
+        let provider = sample_provider(&env);
+
+        // No stake yet
+        assert_eq!(
+            can_submit_signal(&storage, &provider),
+            Err(ContractError::NoStakeFound)
+        );
+
+        stake(&env, &mut storage, &provider, 100_000_000).unwrap();
+        assert!(can_submit_signal(&storage, &provider).is_ok());
+    }
 }
