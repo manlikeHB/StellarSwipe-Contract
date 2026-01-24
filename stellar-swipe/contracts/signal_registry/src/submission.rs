@@ -1,19 +1,14 @@
-#![allow(dead_code)]
+use soroban_sdk::{contracttype, Address, Env, Map, String};
+use crate::stake::{can_submit_signal, StakeInfo, DEFAULT_MINIMUM_STAKE};
 
-use soroban_sdk::{contracttype, Address, Env, Map, Vec};
-
-use crate::stake::{can_submit_signal, ContractError, StakeInfo, DEFAULT_MINIMUM_STAKE, UNSTAKE_LOCK_PERIOD};
-
-/// Action enum for trading signals
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Buy,
     Sell,
     Hold,
 }
 
-/// Structure to store a signal
 #[contracttype]
 #[derive(Clone)]
 pub struct Signal {
@@ -26,7 +21,6 @@ pub struct Signal {
     pub expiry: u64,
 }
 
-/// Contract-level error enum
 #[derive(Debug, PartialEq)]
 pub enum Error {
     NoStake,
@@ -37,8 +31,6 @@ pub enum Error {
     DuplicateSignal,
 }
 
-/// Submit a trading signal
-/// Returns auto-generated signal ID
 pub fn submit_signal(
     env: &Env,
     storage: &mut Map<u64, Signal>,
@@ -51,14 +43,16 @@ pub fn submit_signal(
 ) -> Result<u64, Error> {
     // 1️⃣ Verify provider stake
     can_submit_signal(provider_stakes, provider).map_err(|_| Error::NoStake)?;
-
     let stake_info = provider_stakes.get(provider.clone()).unwrap();
     if stake_info.amount < DEFAULT_MINIMUM_STAKE {
         return Err(Error::BelowMinimumStake);
     }
 
     // 2️⃣ Validate asset pair
-    if !asset_pair.contains('/') || asset_pair.len() < 3 || asset_pair.len() > 20 {
+    let asset_bytes = asset_pair.to_bytes();
+    let has_slash = asset_bytes.iter().any(|b| b == b'/');
+    let len = asset_bytes.len();
+    if !has_slash || len < 3 || len > 20 {
         return Err(Error::InvalidAssetPair);
     }
 
@@ -68,7 +62,8 @@ pub fn submit_signal(
     }
 
     // 4️⃣ Validate rationale
-    if rationale.is_empty() || rationale.len() > 500 {
+    let rationale_len = rationale.to_bytes().len();
+    if rationale_len == 0 || rationale_len > 500 {
         return Err(Error::EmptyRationale);
     }
 
@@ -76,7 +71,7 @@ pub fn submit_signal(
     let now = env.ledger().timestamp();
     for (_, sig) in storage.iter() {
         if sig.provider == *provider
-            && sig.asset_pair == asset_pair
+            && sig.asset_pair.to_bytes() == asset_pair.to_bytes()
             && sig.action == action
             && sig.price == price
             && now < sig.timestamp + 3600
@@ -94,19 +89,144 @@ pub fn submit_signal(
     // 8️⃣ Store the signal
     let signal = Signal {
         provider: provider.clone(),
-        asset_pair: asset_pair.clone(),
-        action: action.clone(),
+        asset_pair,
+        action,
         price,
-        rationale: rationale.clone(),
+        rationale,
         timestamp: now,
         expiry,
     };
-
     storage.set(next_id, signal);
 
-    // 9️⃣ Emit event (for CI/tests we just simulate)
-    // env.events().publish("SignalSubmitted", (provider, asset_pair, action, price, rationale, expiry));
+    // 9️⃣ Event placeholder (optional)
+    // env.events().publish("SignalSubmitted", (provider, signal.asset_pair.clone(), action, price, signal.rationale.clone(), expiry));
 
     Ok(next_id)
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as TestAddress, Env, Map};
+    use crate::stake::{stake, StakeInfo, DEFAULT_MINIMUM_STAKE};
+
+    fn setup_env() -> Env {
+        Env::default()
+    }
+
+    fn sample_provider(env: &Env) -> Address {
+        <Address as TestAddress>::generate(env)
+    }
+
+    #[test]
+    fn test_submit_signal_success() {
+        let env = setup_env();
+        let mut stakes: Map<Address, StakeInfo> = Map::new(&env);
+        let mut signals: Map<u64, Signal> = Map::new(&env);
+
+        let provider = sample_provider(&env);
+
+        // Stake enough
+        stake(&env, &mut stakes, &provider, DEFAULT_MINIMUM_STAKE).unwrap();
+
+        let signal_id = submit_signal(
+            &env,
+            &mut signals,
+            &stakes,
+            &provider,
+            "XLM/USDC".to_string(),
+            Action::Buy,
+            120_000_000,
+            "Bullish on XLM".to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(signal_id, 1);
+        let stored = signals.get(signal_id).unwrap();
+        assert_eq!(stored.provider, provider);
+        assert_eq!(stored.asset_pair, "XLM/USDC");
+        assert_eq!(stored.action, Action::Buy);
+        assert_eq!(stored.price, 120_000_000);
+    }
+
+    #[test]
+    fn test_submit_signal_no_stake() {
+        let env = setup_env();
+        let mut stakes: Map<Address, StakeInfo> = Map::new(&env);
+        let mut signals: Map<u64, Signal> = Map::new(&env);
+        let provider = sample_provider(&env);
+
+        let res = submit_signal(
+            &env,
+            &mut signals,
+            &stakes,
+            &provider,
+            "XLM/USDC".to_string(),
+            Action::Buy,
+            120_000_000,
+            "Bullish on XLM".to_string(),
+        );
+
+        assert_eq!(res, Err(Error::NoStake));
+    }
+
+    #[test]
+    fn test_submit_signal_invalid_price() {
+        let env = setup_env();
+        let mut stakes: Map<Address, StakeInfo> = Map::new(&env);
+        let mut signals: Map<u64, Signal> = Map::new(&env);
+        let provider = sample_provider(&env);
+
+        stake(&env, &mut stakes, &provider, DEFAULT_MINIMUM_STAKE).unwrap();
+
+        let res = submit_signal(
+            &env,
+            &mut signals,
+            &stakes,
+            &provider,
+            "XLM/USDC".to_string(),
+            Action::Buy,
+            0,
+            "Bullish on XLM".to_string(),
+        );
+
+        assert_eq!(res, Err(Error::InvalidPrice));
+    }
+
+    #[test]
+    fn test_submit_signal_duplicate() {
+        let env = setup_env();
+        let mut stakes: Map<Address, StakeInfo> = Map::new(&env);
+        let mut signals: Map<u64, Signal> = Map::new(&env);
+        let provider = sample_provider(&env);
+
+        stake(&env, &mut stakes, &provider, DEFAULT_MINIMUM_STAKE).unwrap();
+
+        let _ = submit_signal(
+            &env,
+            &mut signals,
+            &stakes,
+            &provider,
+            "XLM/USDC".to_string(),
+            Action::Buy,
+            120_000_000,
+            "Bullish".to_string(),
+        )
+        .unwrap();
+
+        // Duplicate within 1 hour
+        let res = submit_signal(
+            &env,
+            &mut signals,
+            &stakes,
+            &provider,
+            "XLM/USDC".to_string(),
+            Action::Buy,
+            120_000_000,
+            "Bullish".to_string(),
+        );
+
+        assert_eq!(res, Err(Error::DuplicateSignal));
+    }
+}

@@ -1,6 +1,7 @@
 #![no_std]
 
 mod stake;
+mod submission;
 mod types;
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Map, String};
