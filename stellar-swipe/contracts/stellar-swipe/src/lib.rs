@@ -2,16 +2,9 @@
 
 mod types;
 
-use soroban_sdk::{
-    contract, contractimpl, contracttype, Address, Bytes, Env, Map, String,
-};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Map, String};
 
-use types::{
-    Signal,
-    SignalAction,
-    SignalStats,
-    SignalStatus,
-};
+use types::{Signal, SignalAction, SignalStats, SignalStatus};
 
 const MAX_EXPIRY_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
 
@@ -56,9 +49,7 @@ impl SignalRegistry {
     }
 
     fn save_signals_map(env: &Env, map: &Map<u64, Signal>) {
-        env.storage()
-            .instance()
-            .set(&StorageKey::Signals, map);
+        env.storage().instance().set(&StorageKey::Signals, map);
     }
 
     fn get_provider_stats_map(env: &Env) -> Map<Address, SignalStats> {
@@ -74,7 +65,7 @@ impl SignalRegistry {
             .set(&StorageKey::ProviderStats, map);
     }
 
-    fn validate_asset_pair(env: &Env, asset_pair: &String) {
+    fn validate_asset_pair(_env: &Env, asset_pair: &String) {
         let bytes: Bytes = asset_pair.clone().to_bytes();
 
         let mut has_slash = false;
@@ -156,3 +147,5 @@ impl SignalRegistry {
         stats.get(provider)
     }
 }
+
+mod test;
