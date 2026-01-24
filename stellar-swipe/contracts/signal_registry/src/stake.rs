@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use soroban_sdk::{contracttype, Address, Env, Map};
 
 pub const DEFAULT_MINIMUM_STAKE: i128 = 100_000_000; // 100 XLM
