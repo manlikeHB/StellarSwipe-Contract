@@ -98,7 +98,7 @@ pub fn can_submit_signal(
     let info = storage.get(provider.clone()).ok_or(ContractError::NoStakeFound)?;
 
     if info.amount < DEFAULT_MINIMUM_STAKE {
-        return Err(ContractError::BelowMinimumStake);
+        return Err(ContracjhtError::BelowMinimumStake);
     }
 
     Ok(())
