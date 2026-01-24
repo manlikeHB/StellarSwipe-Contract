@@ -3,7 +3,7 @@
 mod types;
 
 use soroban_sdk::{
-    contract, contractimpl, Address, Env, Map, String,
+    contract, contractimpl, contracttype, Address, Bytes, Env, Map, String,
 };
 
 use types::{
@@ -18,6 +18,7 @@ const MAX_EXPIRY_SECONDS: u64 = 30 * 24 * 60 * 60; // 30 days
 #[contract]
 pub struct SignalRegistry;
 
+#[contracttype]
 #[derive(Clone)]
 enum StorageKey {
     SignalCounter,
@@ -39,6 +40,7 @@ impl SignalRegistry {
             .unwrap_or(0);
 
         counter = counter.checked_add(1).expect("signal id overflow");
+
         env.storage()
             .instance()
             .set(&StorageKey::SignalCounter, &counter);
@@ -72,9 +74,18 @@ impl SignalRegistry {
             .set(&StorageKey::ProviderStats, map);
     }
 
-    fn validate_asset_pair(asset_pair: &String) {
-        // Minimal validation: must contain "/"
-        if !asset_pair.contains("/") {
+    fn validate_asset_pair(env: &Env, asset_pair: &String) {
+        let bytes: Bytes = asset_pair.clone().into_bytes();
+
+        let mut has_slash = false;
+        for i in 0..bytes.len() {
+            if bytes.get(i).unwrap() == b'/' {
+                has_slash = true;
+                break;
+            }
+        }
+
+        if !has_slash {
             panic!("invalid asset pair");
         }
     }
@@ -94,7 +105,7 @@ impl SignalRegistry {
     ) -> u64 {
         provider.require_auth();
 
-        Self::validate_asset_pair(&asset_pair);
+        Self::validate_asset_pair(&env, &asset_pair);
 
         let now = env.ledger().timestamp();
 
@@ -125,7 +136,7 @@ impl SignalRegistry {
         signals.set(id, signal);
         Self::save_signals_map(&env, &signals);
 
-        // Initialize provider stats if first time
+        // Initialize provider stats on first submission
         let mut stats = Self::get_provider_stats_map(&env);
         if !stats.contains_key(provider.clone()) {
             stats.set(provider, SignalStats::default());
