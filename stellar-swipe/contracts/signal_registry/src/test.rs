@@ -428,3 +428,151 @@ fn test_unauthorized_treasury_update() {
     let result = client.try_set_platform_treasury(&attacker, &treasury);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_get_active_signals_excludes_expired() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Set a known timestamp
+    use soroban_sdk::testutils::Ledger;
+    env.ledger().set_timestamp(10000);
+
+    let provider = Address::generate(&env);
+    let current_time = env.ledger().timestamp();
+
+    // Create 3 active signals
+    for _i in 0..3 {
+        client.create_signal(
+            &provider,
+            &String::from_str(&env, "XLM/USDC"),
+            &SignalAction::Buy,
+            &100_000,
+            &String::from_str(&env, "Active"),
+            &(current_time + 10000),
+        );
+    }
+
+    // Create 2 expired signals
+    for _i in 0..2 {
+        client.create_signal(
+            &provider,
+            &String::from_str(&env, "XLM/BTC"),
+            &SignalAction::Sell,
+            &200_000,
+            &String::from_str(&env, "Expired"),
+            &(current_time + 10),
+        );
+    }
+
+    // Move time to expire the second batch
+    env.ledger().set_timestamp(current_time + 100);
+
+    // Get active signals - should only return 3
+    let active = client.get_active_signals();
+    assert_eq!(active.len(), 3);
+
+    // All returned signals should be active
+    for i in 0..active.len() {
+        let signal = active.get(i).unwrap();
+        assert_eq!(signal.rationale, String::from_str(&env, "Active"));
+    }
+}
+
+#[test]
+fn test_cleanup_batch_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Set a known timestamp
+    use soroban_sdk::testutils::Ledger;
+    env.ledger().set_timestamp(10000);
+
+    let provider = Address::generate(&env);
+    let current_time = env.ledger().timestamp();
+
+    // Create 150 expired signals
+    for _ in 0..150 {
+        client.create_signal(
+            &provider,
+            &String::from_str(&env, "XLM/USDC"),
+            &SignalAction::Buy,
+            &100_000,
+            &String::from_str(&env, "Test"),
+            &(current_time + 10),
+        );
+    }
+
+    // Move time to expire all
+    env.ledger().set_timestamp(current_time + 100);
+
+    // Cleanup with limit of 50
+    let (processed, expired) = client.cleanup_expired_signals(&50);
+
+    assert_eq!(processed, 50);
+    assert_eq!(expired, 50);
+
+    // Run again to process more
+    let (processed2, expired2) = client.cleanup_expired_signals(&50);
+    assert_eq!(processed2, 50);
+    assert_eq!(expired2, 50);
+}
+
+#[test]
+fn test_pending_expiry_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Set a known timestamp
+    use soroban_sdk::testutils::Ledger;
+    env.ledger().set_timestamp(10000);
+
+    let provider = Address::generate(&env);
+    let current_time = env.ledger().timestamp();
+
+    // Create signals that will be past expiry
+    for _i in 0..4 {
+        client.create_signal(
+            &provider,
+            &String::from_str(&env, "XLM/USDC"),
+            &SignalAction::Buy,
+            &100_000,
+            &String::from_str(&env, "Test"),
+            &(current_time + 10),
+        );
+    }
+
+    // Initially no pending expiry
+    assert_eq!(client.get_pending_expiry_count(), 0);
+
+    // Move time forward
+    env.ledger().set_timestamp(current_time + 100);
+
+    // Now should have 4 pending expiry
+    assert_eq!(client.get_pending_expiry_count(), 4);
+
+    // After cleanup, none pending
+    client.cleanup_expired_signals(&10);
+    assert_eq!(client.get_pending_expiry_count(), 0);
+}

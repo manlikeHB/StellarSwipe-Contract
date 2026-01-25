@@ -55,3 +55,8 @@ pub fn emit_fee_collected(
     env.events()
         .publish(topics, (total_fee, platform_fee, provider_fee));
 }
+
+pub fn emit_signal_expired(env: &Env, signal_id: u64, provider: Address, expiry_time: u64) {
+    let topics = (Symbol::new(env, "signal_expired"), provider, signal_id);
+    env.events().publish(topics, expiry_time);
+}

@@ -5,6 +5,8 @@ mod errors;
 #[allow(deprecated)]
 mod events;
 #[allow(dead_code)]
+mod expiry;
+#[allow(dead_code)]
 mod fees;
 mod stake;
 mod types;
@@ -24,7 +26,7 @@ pub struct SignalRegistry;
 
 #[contracttype]
 #[derive(Clone)]
-enum StorageKey {
+pub enum StorageKey {
     SignalCounter,
     Signals,
     ProviderStats,
@@ -293,6 +295,44 @@ impl SignalRegistry {
         trade_amount: i128,
     ) -> Result<FeeBreakdown, errors::FeeError> {
         fees::calculate_fee_breakdown(trade_amount)
+    }
+
+    /* =========================
+       EXPIRY MANAGEMENT
+    ========================== */
+
+    /// Get signal with automatic expiry checking
+    /// Get all active (non-expired) signals for feed
+    pub fn get_active_signals(env: Env) -> Vec<Signal> {
+        let signals = Self::get_signals_map(&env);
+        expiry::get_active_signals(&env, &signals)
+    }
+
+    /// Cleanup expired signals in batches
+    /// Returns (signals_processed, signals_expired)
+    pub fn cleanup_expired_signals(env: Env, limit: u32) -> (u32, u32) {
+        let signals = Self::get_signals_map(&env);
+        let result = expiry::cleanup_expired_signals(&env, &signals, limit);
+        (result.signals_processed, result.signals_expired)
+    }
+
+    /// Archive old expired signals (30+ days old)
+    /// Returns number of signals archived
+    pub fn archive_old_signals(env: Env, limit: u32) -> u32 {
+        let signals = Self::get_signals_map(&env);
+        expiry::archive_old_signals(&env, &signals, limit)
+    }
+
+    /// Get count of expired signals
+    pub fn get_expired_count(env: Env) -> u32 {
+        let signals = Self::get_signals_map(&env);
+        expiry::count_expired_signals(&signals)
+    }
+
+    /// Get count of signals pending expiry (past expiry time but not marked yet)
+    pub fn get_pending_expiry_count(env: Env) -> u32 {
+        let signals = Self::get_signals_map(&env);
+        expiry::count_signals_pending_expiry(&env, &signals)
     }
 }
 
