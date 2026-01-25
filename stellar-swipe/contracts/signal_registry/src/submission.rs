@@ -32,7 +32,7 @@ pub enum Error {
     DuplicateSignal,
 }
 
-#[allow(clippy::too_many_arguments, manual_range_contains)]
+#[allow(clippy::too_many_arguments, clippy::manual_range_contains)]
 pub fn submit_signal(
     env: &Env,
     storage: &mut Map<u64, Signal>,
