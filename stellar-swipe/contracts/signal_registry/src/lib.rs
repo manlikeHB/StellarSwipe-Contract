@@ -9,6 +9,7 @@ mod expiry;
 #[allow(dead_code)]
 mod fees;
 mod stake;
+mod submission;
 mod types;
 
 use admin::{
