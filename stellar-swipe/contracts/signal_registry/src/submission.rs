@@ -32,6 +32,7 @@ pub enum Error {
     DuplicateSignal,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn submit_signal(
     env: &Env,
     storage: &mut Map<u64, Signal>,
