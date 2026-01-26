@@ -26,3 +26,15 @@ pub enum FeeError {
     InvalidAmount = 103,
     InvalidProviderAddress = 104,
 }
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum PerformanceError {
+    SignalNotFound = 200,
+    InvalidPrice = 201,
+    DivisionByZero = 202,
+    InvalidVolume = 203,
+    SignalExpired = 204,
+    NoExecutions = 205,
+}

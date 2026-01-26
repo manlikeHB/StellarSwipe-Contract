@@ -7,6 +7,8 @@ pub enum SignalStatus {
     Active,
     Executed,
     Expired,
+    Successful,  // Signal met success criteria (avg ROI > 2%)
+    Failed,      // Signal met failure criteria (avg ROI < -5% or expired with no executions)
 }
 
 #[contracttype]
@@ -28,15 +30,22 @@ pub struct Signal {
     pub timestamp: u64,
     pub expiry: u64,
     pub status: SignalStatus,
+    // Performance tracking fields
+    pub executions: u32,        // Number of trade executions for this signal
+    pub total_volume: i128,     // Cumulative volume across all executions
+    pub total_roi: i128,        // Cumulative ROI in basis points (10000 = 100%)
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Default)]
-pub struct SignalStats {
-    pub total_copies: u64,
-    pub success_rate: u32,
-    pub avg_return: i128,
-    pub total_volume: i128,
+pub struct ProviderPerformance {
+    pub total_signals: u32,       // Total number of signals provided
+    pub successful_signals: u32,  // Signals marked as successful
+    pub failed_signals: u32,      // Signals marked as failed
+    pub total_copies: u64,        // Legacy field: total times signals were copied
+    pub success_rate: u32,        // Success rate in basis points (10000 = 100%)
+    pub avg_return: i128,         // Average return in basis points
+    pub total_volume: i128,       // Cumulative volume across all signals
 }
 
 #[contracttype]
@@ -62,3 +71,32 @@ pub struct Asset {
     pub symbol: Symbol,
     pub contract: Address,
 }
+
+/// Record of a single trade execution for a signal
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct TradeExecution {
+    pub signal_id: u64,
+    pub executor: Address,
+    pub entry_price: i128,
+    pub exit_price: i128,
+    pub volume: i128,
+    pub roi: i128,        // ROI in basis points (10000 = 100%)
+    pub timestamp: u64,
+}
+
+/// View struct for signal performance queries
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignalPerformanceView {
+    pub signal_id: u64,
+    pub executions: u32,
+    pub total_volume: i128,
+    pub average_roi: i128,    // In basis points
+    pub status: SignalStatus,
+}
+
+// Type alias for backward compatibility
+#[allow(dead_code)]
+pub type SignalStats = ProviderPerformance;
+

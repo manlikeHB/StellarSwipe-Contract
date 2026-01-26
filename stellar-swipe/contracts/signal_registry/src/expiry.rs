@@ -285,6 +285,9 @@ mod tests {
             timestamp: env.ledger().timestamp(),
             expiry,
             status: SignalStatus::Active,
+            executions: 0,
+            total_volume: 0,
+            total_roi: 0,
         }
     }
 

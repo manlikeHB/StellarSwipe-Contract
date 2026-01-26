@@ -8,6 +8,7 @@ mod events;
 mod expiry;
 #[allow(dead_code)]
 mod fees;
+mod performance;
 mod stake;
 mod submission;
 mod types;
@@ -18,7 +19,7 @@ use admin::{
 };
 use errors::AdminError;
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Map, String, Vec};
-use types::{Asset, FeeBreakdown, Signal, SignalAction, SignalStats, SignalStatus};
+use types::{Asset, FeeBreakdown, ProviderPerformance, Signal, SignalAction, SignalPerformanceView, SignalStatus, TradeExecution};
 
 const MAX_EXPIRY_SECONDS: u64 = 30 * 24 * 60 * 60;
 
@@ -31,6 +32,7 @@ pub enum StorageKey {
     SignalCounter,
     Signals,
     ProviderStats,
+    TradeExecutions,
 }
 
 #[contractimpl]
@@ -166,14 +168,14 @@ impl SignalRegistry {
         env.storage().instance().set(&StorageKey::Signals, map);
     }
 
-    fn get_provider_stats_map(env: &Env) -> Map<Address, SignalStats> {
+    fn get_provider_stats_map(env: &Env) -> Map<Address, ProviderPerformance> {
         env.storage()
             .instance()
             .get(&StorageKey::ProviderStats)
             .unwrap_or(Map::new(env))
     }
 
-    fn save_provider_stats_map(env: &Env, map: &Map<Address, SignalStats>) {
+    fn save_provider_stats_map(env: &Env, map: &Map<Address, ProviderPerformance>) {
         env.storage()
             .instance()
             .set(&StorageKey::ProviderStats, map);
@@ -237,6 +239,10 @@ impl SignalRegistry {
             timestamp: now,
             expiry,
             status: SignalStatus::Active,
+            // Initialize performance tracking fields
+            executions: 0,
+            total_volume: 0,
+            total_roi: 0,
         };
 
         // Store signal
@@ -247,7 +253,7 @@ impl SignalRegistry {
         // Initialize provider stats on first submission
         let mut stats = Self::get_provider_stats_map(&env);
         if !stats.contains_key(provider.clone()) {
-            stats.set(provider, SignalStats::default());
+            stats.set(provider, ProviderPerformance::default());
             Self::save_provider_stats_map(&env, &stats);
         }
 
@@ -259,9 +265,179 @@ impl SignalRegistry {
         signals.get(signal_id)
     }
 
-    pub fn get_provider_stats(env: Env, provider: Address) -> Option<SignalStats> {
+    pub fn get_provider_stats(env: Env, provider: Address) -> Option<ProviderPerformance> {
         let stats = Self::get_provider_stats_map(&env);
         stats.get(provider)
+    }
+
+    /* =========================
+       PERFORMANCE TRACKING FUNCTIONS
+    ========================== */
+
+    /// Record a trade execution for a signal and update performance stats
+    pub fn record_trade_execution(
+        env: Env,
+        executor: Address,
+        signal_id: u64,
+        entry_price: i128,
+        exit_price: i128,
+        volume: i128,
+    ) -> Result<(), errors::PerformanceError> {
+        // Require executor authorization
+        executor.require_auth();
+
+        // Validate inputs
+        if entry_price <= 0 || exit_price <= 0 {
+            return Err(errors::PerformanceError::InvalidPrice);
+        }
+        if volume <= 0 {
+            return Err(errors::PerformanceError::InvalidVolume);
+        }
+
+        // Load signal
+        let mut signals = Self::get_signals_map(&env);
+        let mut signal = signals
+            .get(signal_id)
+            .ok_or(errors::PerformanceError::SignalNotFound)?;
+
+        // Calculate ROI
+        let roi = performance::calculate_roi(entry_price, exit_price, &signal.action);
+
+        // Create trade execution record
+        let trade = TradeExecution {
+            signal_id,
+            executor: executor.clone(),
+            entry_price,
+            exit_price,
+            volume,
+            roi,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        // Store old status for comparison
+        let old_status = signal.status.clone();
+
+        // Update signal stats
+        performance::update_signal_stats(&mut signal, &trade);
+
+        // Evaluate new status
+        let now = env.ledger().timestamp();
+        let new_status = performance::evaluate_signal_status(&signal, now);
+        signal.status = new_status.clone();
+
+        // Save updated signal
+        signals.set(signal_id, signal.clone());
+        Self::save_signals_map(&env, &signals);
+
+        // Emit trade executed event
+        events::emit_trade_executed(&env, signal_id, executor.clone(), roi, volume);
+
+        // Check if status changed and update provider stats
+        if performance::should_update_provider_stats(&old_status, &new_status) {
+            let mut provider_stats_map = Self::get_provider_stats_map(&env);
+            let mut provider_stats = provider_stats_map
+                .get(signal.provider.clone())
+                .unwrap_or_default();
+
+            let signal_avg_roi = performance::get_signal_average_roi(&signal);
+
+            performance::update_provider_performance(
+                &mut provider_stats,
+                &old_status,
+                &new_status,
+                signal_avg_roi,
+                signal.total_volume,
+            );
+
+            provider_stats_map.set(signal.provider.clone(), provider_stats.clone());
+            Self::save_provider_stats_map(&env, &provider_stats_map);
+
+            // Emit status change event
+            events::emit_signal_status_changed(
+                &env,
+                signal_id,
+                signal.provider.clone(),
+                old_status as u32,
+                new_status as u32,
+            );
+
+            // Emit provider stats updated event
+            events::emit_provider_stats_updated(
+                &env,
+                signal.provider,
+                provider_stats.success_rate,
+                provider_stats.avg_return,
+                provider_stats.total_volume,
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Get signal performance metrics
+    pub fn get_signal_performance(
+        env: Env,
+        signal_id: u64,
+    ) -> Option<SignalPerformanceView> {
+        let signals = Self::get_signals_map(&env);
+        let signal = signals.get(signal_id)?;
+
+        let average_roi = performance::get_signal_average_roi(&signal);
+
+        Some(SignalPerformanceView {
+            signal_id: signal.id,
+            executions: signal.executions,
+            total_volume: signal.total_volume,
+            average_roi,
+            status: signal.status,
+        })
+    }
+
+    /// Get provider performance stats (alias for get_provider_stats)
+    pub fn get_provider_performance(
+        env: Env,
+        provider: Address,
+    ) -> Option<ProviderPerformance> {
+        Self::get_provider_stats(env, provider)
+    }
+
+    /// Get top providers sorted by success rate
+    pub fn get_top_providers(env: Env, limit: u32) -> Vec<(Address, ProviderPerformance)> {
+        let stats_map = Self::get_provider_stats_map(&env);
+        let mut providers = Vec::new(&env);
+
+        // Collect all providers
+        for key in stats_map.keys() {
+            if let Some(stats) = stats_map.get(key.clone()) {
+                providers.push_back((key, stats));
+            }
+        }
+
+        // Sort by success rate (descending)
+        // Note: Soroban Vec doesn't have built-in sort, so we implement a simple bubble sort
+        let len = providers.len();
+        for i in 0..len {
+            for j in 0..(len - i - 1) {
+                let curr = providers.get(j).unwrap();
+                let next = providers.get(j + 1).unwrap();
+
+                if curr.1.success_rate < next.1.success_rate {
+                    // Swap
+                    let temp = curr.clone();
+                    providers.set(j, next);
+                    providers.set(j + 1, temp);
+                }
+            }
+        }
+
+        // Return top N
+        let result_len = if limit < len { limit } else { len };
+        let mut result = Vec::new(&env);
+        for i in 0..result_len {
+            result.push_back(providers.get(i).unwrap());
+        }
+
+        result
     }
 
     /* =========================
@@ -338,3 +514,4 @@ impl SignalRegistry {
 }
 
 mod test;
+mod test_performance;
