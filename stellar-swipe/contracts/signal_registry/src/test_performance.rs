@@ -304,13 +304,7 @@ fn test_multiple_executions_per_signal() {
     // Execute 10 trades with varying outcomes
     let exit_prices = [105, 102, 98, 110, 95, 103, 99, 108, 101, 104];
     for &exit in exit_prices.iter() {
-        client.record_trade_execution(
-            &executor,
-            &signal_id,
-            &100_000,
-            &(exit * 1000),
-            &1000,
-        );
+        client.record_trade_execution(&executor, &signal_id, &100_000, &(exit * 1000), &1000);
     }
 
     let performance = client.get_signal_performance(&signal_id).unwrap();
@@ -649,7 +643,8 @@ fn test_invalid_volume_validation() {
     let result = client.try_record_trade_execution(&executor, &signal_id, &100_000, &105_000, &0);
     assert!(result.is_err()); // Volume = 0 should fail
 
-    let result = client.try_record_trade_execution(&executor, &signal_id, &100_000, &105_000, &-100);
+    let result =
+        client.try_record_trade_execution(&executor, &signal_id, &100_000, &105_000, &-100);
     assert!(result.is_err()); // Negative volume should fail
 }
 

@@ -19,7 +19,10 @@ use admin::{
 };
 use errors::AdminError;
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Map, String, Vec};
-use types::{Asset, FeeBreakdown, ProviderPerformance, Signal, SignalAction, SignalPerformanceView, SignalStatus, TradeExecution};
+use types::{
+    Asset, FeeBreakdown, ProviderPerformance, Signal, SignalAction, SignalPerformanceView,
+    SignalStatus, TradeExecution,
+};
 
 const MAX_EXPIRY_SECONDS: u64 = 30 * 24 * 60 * 60;
 
@@ -375,10 +378,7 @@ impl SignalRegistry {
     }
 
     /// Get signal performance metrics
-    pub fn get_signal_performance(
-        env: Env,
-        signal_id: u64,
-    ) -> Option<SignalPerformanceView> {
+    pub fn get_signal_performance(env: Env, signal_id: u64) -> Option<SignalPerformanceView> {
         let signals = Self::get_signals_map(&env);
         let signal = signals.get(signal_id)?;
 
@@ -394,10 +394,7 @@ impl SignalRegistry {
     }
 
     /// Get provider performance stats (alias for get_provider_stats)
-    pub fn get_provider_performance(
-        env: Env,
-        provider: Address,
-    ) -> Option<ProviderPerformance> {
+    pub fn get_provider_performance(env: Env, provider: Address) -> Option<ProviderPerformance> {
         Self::get_provider_stats(env, provider)
     }
 
