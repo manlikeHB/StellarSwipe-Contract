@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
   "contracts/signal_registry",
-  "contracts/auto_trade",
 ]
 
 [workspace.dependencies]
