@@ -1,5 +1,3 @@
-#![no_std]
-
 use soroban_sdk::{Env, Address};
 
 use crate::storage::Signal;

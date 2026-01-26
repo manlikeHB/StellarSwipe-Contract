@@ -1,14 +1,14 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, Address, Env, Map, Symbol,
+    contract, contractimpl, contracttype, Address, Env, Symbol,
 };
 
 mod sdex;
 mod storage;
 mod errors;
 
-use sdex::*;
+// use sdex::*;
 use errors::AutoTradeError;
 
 /// ==========================
@@ -162,6 +162,7 @@ impl AutoTradeContract {
         // ----------------------
         // Emit event
         // ----------------------
+        #[allow(deprecated)]
         env.events().publish(
             (Symbol::new(&env, "trade_executed"), user, signal_id),
             trade.clone(),
