@@ -111,7 +111,7 @@ mod tests {
     /// Generate deterministic test addresses
     fn test_user(_env: &Env, _n: u8) -> Address {
         // Use Soroban TestAddress generator
-        <Address as TestAddress>::generate(&_env)
+        <Address as TestAddress>::generate(_env)
     }
 
     #[test]

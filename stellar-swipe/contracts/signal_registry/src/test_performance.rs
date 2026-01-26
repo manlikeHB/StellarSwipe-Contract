@@ -36,12 +36,12 @@ fn test_record_trade_execution_updates_signal() {
     );
 
     // Record a profitable trade execution (entry 100, exit 105 = 5% gain)
-    client.record_trade_execution(&executor, &signal_id, &100_000, &105_000, &1000_000);
+    client.record_trade_execution(&executor, &signal_id, &100_000, &105_000, &1_000_000);
 
     // Verify signal was updated
     let performance = client.get_signal_performance(&signal_id).unwrap();
     assert_eq!(performance.executions, 1);
-    assert_eq!(performance.total_volume, 1000_000);
+    assert_eq!(performance.total_volume, 1_000_000);
     assert_eq!(performance.average_roi, 500); // 5% = 500 basis points
 }
 
