@@ -178,3 +178,4 @@ impl AutoTradeContract {
             .get(&DataKey::Trades(user, signal_id))
     }
 }
+mod test;
