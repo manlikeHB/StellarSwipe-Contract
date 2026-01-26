@@ -14,27 +14,48 @@ pub fn has_sufficient_balance(
     _asset: &u32,
     _amount: i128,
 ) -> bool {
+    // TODO: query balance via auth framework / asset contract
     true
 }
 
+/// MARKET ORDER
 pub fn execute_market_order(
-    _env: &Env,
-    _user: &Address,
+    env: &Env,
+    user: &Address,
     signal: &Signal,
     amount: i128,
 ) -> Result<ExecutionResult, AutoTradeError> {
+    let now = env.ledger().timestamp();
+
+    if now >= signal.expiry {
+        return Err(AutoTradeError::SignalExpired);
+    }
+
+    // In real SDEX:
+    // - manage_buy_offer / manage_sell_offer
+    // - price set aggressively to cross spread
+    // - expiration = signal.expiry
+
     Ok(ExecutionResult {
-        executed_amount: amount,
-        executed_price: signal.price,
+        executed_amount: amount,          // partial fills handled upstream
+        executed_price: signal.price,     // approximated market price
     })
 }
 
+/// LIMIT ORDER
 pub fn execute_limit_order(
-    _env: &Env,
-    _user: &Address,
+    env: &Env,
+    user: &Address,
     signal: &Signal,
     amount: i128,
 ) -> Result<ExecutionResult, AutoTradeError> {
+    let now = env.ledger().timestamp();
+
+    if now >= signal.expiry {
+        return Err(AutoTradeError::SignalExpired);
+    }
+
+ 
     Ok(ExecutionResult {
         executed_amount: amount,
         executed_price: signal.price,
