@@ -1,24 +1,35 @@
-use soroban_sdk::{Env, Address};
+use soroban_sdk::{contracttype, Address, Env};
 
-use crate::storage::Signal;
 use crate::errors::AutoTradeError;
+use crate::storage::Signal;
 
+/// Result returned by SDEX adapter
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionResult {
     pub executed_amount: i128,
     pub executed_price: i128,
 }
 
+/// Simulated on-chain balance check
+/// In production: asset contract / trustline verification
 pub fn has_sufficient_balance(
-    _env: &Env,
-    _user: &Address,
+    env: &Env,
+    user: &Address,
     _asset: &u32,
-    _amount: i128,
+    amount: i128,
 ) -> bool {
-    // TODO: query balance via auth framework / asset contract
-    true
+    let key = (user.clone(), "balance");
+    let balance: i128 = env
+        .storage()
+        .temporary()
+        .get(&key)
+        .unwrap_or(0);
+
+    balance >= amount
 }
 
-/// MARKET ORDER
+/// Mock MARKET order execution
 pub fn execute_market_order(
     env: &Env,
     _user: &Address,
@@ -31,18 +42,26 @@ pub fn execute_market_order(
         return Err(AutoTradeError::SignalExpired);
     }
 
-    // In real SDEX:
-    // - manage_buy_offer / manage_sell_offer
-    // - price set aggressively to cross spread
-    // - expiration = signal.expiry
+    // Simulated orderbook depth
+    let available_liquidity: i128 = env
+        .storage()
+        .temporary()
+        .get(&("liquidity", signal.signal_id))
+        .unwrap_or(amount);
+
+    if available_liquidity <= 0 {
+        return Err(AutoTradeError::InsufficientLiquidity);
+    }
+
+    let executed_amount = core::cmp::min(amount, available_liquidity);
 
     Ok(ExecutionResult {
-        executed_amount: amount,          // partial fills handled upstream
-        executed_price: signal.price,     // approximated market price
+        executed_amount,
+        executed_price: signal.price, // aggressive crossing price
     })
 }
 
-/// LIMIT ORDER
+/// Mock LIMIT order execution
 pub fn execute_limit_order(
     env: &Env,
     _user: &Address,
@@ -55,7 +74,20 @@ pub fn execute_limit_order(
         return Err(AutoTradeError::SignalExpired);
     }
 
- 
+    let market_price: i128 = env
+        .storage()
+        .temporary()
+        .get(&("market_price", signal.signal_id))
+        .unwrap_or(signal.price);
+
+    // Limit condition not met
+    if market_price > signal.price {
+        return Ok(ExecutionResult {
+            executed_amount: 0,
+            executed_price: 0,
+        });
+    }
+
     Ok(ExecutionResult {
         executed_amount: amount,
         executed_price: signal.price,
