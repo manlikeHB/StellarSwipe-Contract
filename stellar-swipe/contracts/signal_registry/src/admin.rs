@@ -1,0 +1,542 @@
+use soroban_sdk::{contracttype, Address, Env, Vec};
+
+use crate::errors::AdminError;
+use crate::events::*;
+
+// Constants
+pub const PAUSE_DURATION: u64 = 48 * 60 * 60; // 48 hours in seconds
+pub const MAX_FEE_BPS: u32 = 100; // 1% max fee
+pub const MAX_RISK_PERCENTAGE: u32 = 100; // 100% max
+
+// Default values
+pub const DEFAULT_MIN_STAKE: i128 = 100_000_000; // 100 XLM (7 decimals)
+pub const DEFAULT_TRADE_FEE_BPS: u32 = 10; // 0.1%
+pub const DEFAULT_STOP_LOSS: u32 = 15; // 15%
+pub const DEFAULT_POSITION_LIMIT: u32 = 20; // 20%
+
+#[contracttype]
+#[derive(Clone)]
+pub enum AdminStorageKey {
+    Admin,
+    MinStake,
+    TradeFee,
+    StopLoss,
+    PositionLimit,
+    PauseInfo,
+    MultiSigEnabled,
+    MultiSigSigners,
+    MultiSigThreshold,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PauseInfo {
+    pub is_paused: bool,
+    pub paused_at: u64,
+    pub expires_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct AdminConfig {
+    pub min_stake: i128,
+    pub trade_fee_bps: u32,
+    pub default_stop_loss: u32,
+    pub default_position_limit: u32,
+}
+
+/// Initialize admin with default parameters
+pub fn init_admin(env: &Env, admin: Address) -> Result<(), AdminError> {
+    if has_admin(env) {
+        return Err(AdminError::AlreadyInitialized);
+    }
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::Admin, &admin);
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MinStake, &DEFAULT_MIN_STAKE);
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::TradeFee, &DEFAULT_TRADE_FEE_BPS);
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::StopLoss, &DEFAULT_STOP_LOSS);
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::PositionLimit, &DEFAULT_POSITION_LIMIT);
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MultiSigEnabled, &false);
+
+    let pause_info = PauseInfo {
+        is_paused: false,
+        paused_at: 0,
+        expires_at: 0,
+    };
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::PauseInfo, &pause_info);
+
+    Ok(())
+}
+
+/// Check if admin is initialized
+pub fn has_admin(env: &Env) -> bool {
+    env.storage().instance().has(&AdminStorageKey::Admin)
+}
+
+/// Get current admin address
+pub fn get_admin(env: &Env) -> Result<Address, AdminError> {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::Admin)
+        .ok_or(AdminError::NotInitialized)
+}
+
+/// Verify caller is admin
+pub fn require_admin(env: &Env, caller: &Address) -> Result<(), AdminError> {
+    let admin = get_admin(env)?;
+
+    if is_multisig_enabled(env) {
+        // For multi-sig, caller must be one of the signers
+        if !is_multisig_signer(env, caller) {
+            return Err(AdminError::Unauthorized);
+        }
+        Ok(())
+    } else {
+        // For single admin, caller must be the admin
+        if caller != &admin {
+            return Err(AdminError::Unauthorized);
+        }
+        Ok(())
+    }
+}
+
+/// Transfer admin to new address
+pub fn transfer_admin(env: &Env, caller: &Address, new_admin: Address) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    let old_admin = get_admin(env)?;
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::Admin, &new_admin);
+
+    emit_admin_transferred(env, old_admin, new_admin);
+    Ok(())
+}
+
+/// Set minimum stake requirement
+pub fn set_min_stake(env: &Env, caller: &Address, new_amount: i128) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    if new_amount <= 0 {
+        return Err(AdminError::InvalidParameter);
+    }
+
+    let old_value: i128 = env
+        .storage()
+        .instance()
+        .get(&AdminStorageKey::MinStake)
+        .unwrap_or(DEFAULT_MIN_STAKE);
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MinStake, &new_amount);
+
+    emit_parameter_updated(
+        env,
+        soroban_sdk::Symbol::new(env, "min_stake"),
+        old_value,
+        new_amount,
+    );
+    Ok(())
+}
+
+/// Get minimum stake requirement
+pub fn get_min_stake(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::MinStake)
+        .unwrap_or(DEFAULT_MIN_STAKE)
+}
+
+/// Set trade fee in basis points
+pub fn set_trade_fee(env: &Env, caller: &Address, new_fee_bps: u32) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    if new_fee_bps > MAX_FEE_BPS {
+        return Err(AdminError::InvalidFeeRate);
+    }
+
+    let old_value: u32 = env
+        .storage()
+        .instance()
+        .get(&AdminStorageKey::TradeFee)
+        .unwrap_or(DEFAULT_TRADE_FEE_BPS);
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::TradeFee, &new_fee_bps);
+
+    emit_parameter_updated(
+        env,
+        soroban_sdk::Symbol::new(env, "trade_fee"),
+        old_value as i128,
+        new_fee_bps as i128,
+    );
+    Ok(())
+}
+
+/// Get trade fee in basis points
+pub fn get_trade_fee(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::TradeFee)
+        .unwrap_or(DEFAULT_TRADE_FEE_BPS)
+}
+
+/// Set risk defaults (stop loss and position limit)
+pub fn set_risk_defaults(
+    env: &Env,
+    caller: &Address,
+    stop_loss: u32,
+    position_limit: u32,
+) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    if stop_loss > MAX_RISK_PERCENTAGE || position_limit > MAX_RISK_PERCENTAGE {
+        return Err(AdminError::InvalidRiskParameter);
+    }
+
+    let old_stop_loss: u32 = env
+        .storage()
+        .instance()
+        .get(&AdminStorageKey::StopLoss)
+        .unwrap_or(DEFAULT_STOP_LOSS);
+
+    let old_position_limit: u32 = env
+        .storage()
+        .instance()
+        .get(&AdminStorageKey::PositionLimit)
+        .unwrap_or(DEFAULT_POSITION_LIMIT);
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::StopLoss, &stop_loss);
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::PositionLimit, &position_limit);
+
+    emit_parameter_updated(
+        env,
+        soroban_sdk::Symbol::new(env, "stop_loss"),
+        old_stop_loss as i128,
+        stop_loss as i128,
+    );
+    emit_parameter_updated(
+        env,
+        soroban_sdk::Symbol::new(env, "position_limit"),
+        old_position_limit as i128,
+        position_limit as i128,
+    );
+
+    Ok(())
+}
+
+/// Get default stop loss percentage
+pub fn get_default_stop_loss(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::StopLoss)
+        .unwrap_or(DEFAULT_STOP_LOSS)
+}
+
+/// Get default position limit percentage
+pub fn get_default_position_limit(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::PositionLimit)
+        .unwrap_or(DEFAULT_POSITION_LIMIT)
+}
+
+/// Pause trading
+pub fn pause_trading(env: &Env, caller: &Address) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    let now = env.ledger().timestamp();
+    let expires_at = now + PAUSE_DURATION;
+
+    let pause_info = PauseInfo {
+        is_paused: true,
+        paused_at: now,
+        expires_at,
+    };
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::PauseInfo, &pause_info);
+
+    emit_trading_paused(env, caller.clone(), expires_at);
+    Ok(())
+}
+
+/// Unpause trading
+pub fn unpause_trading(env: &Env, caller: &Address) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    let pause_info = PauseInfo {
+        is_paused: false,
+        paused_at: 0,
+        expires_at: 0,
+    };
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::PauseInfo, &pause_info);
+
+    emit_trading_unpaused(env, caller.clone());
+    Ok(())
+}
+
+/// Check if trading is paused
+pub fn is_trading_paused(env: &Env) -> bool {
+    let pause_info: PauseInfo = env
+        .storage()
+        .instance()
+        .get(&AdminStorageKey::PauseInfo)
+        .unwrap_or(PauseInfo {
+            is_paused: false,
+            paused_at: 0,
+            expires_at: 0,
+        });
+
+    if !pause_info.is_paused {
+        return false;
+    }
+
+    let now = env.ledger().timestamp();
+
+    // Auto-expire pause after 48 hours
+    if now >= pause_info.expires_at {
+        let expired_pause = PauseInfo {
+            is_paused: false,
+            paused_at: 0,
+            expires_at: 0,
+        };
+        env.storage()
+            .instance()
+            .set(&AdminStorageKey::PauseInfo, &expired_pause);
+        return false;
+    }
+
+    true
+}
+
+/// Require trading not paused
+pub fn require_not_paused(env: &Env) -> Result<(), AdminError> {
+    if is_trading_paused(env) {
+        return Err(AdminError::TradingPaused);
+    }
+    Ok(())
+}
+
+/// Get pause info
+pub fn get_pause_info(env: &Env) -> PauseInfo {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::PauseInfo)
+        .unwrap_or(PauseInfo {
+            is_paused: false,
+            paused_at: 0,
+            expires_at: 0,
+        })
+}
+
+/// Get all admin configuration
+pub fn get_admin_config(env: &Env) -> AdminConfig {
+    AdminConfig {
+        min_stake: get_min_stake(env),
+        trade_fee_bps: get_trade_fee(env),
+        default_stop_loss: get_default_stop_loss(env),
+        default_position_limit: get_default_position_limit(env),
+    }
+}
+
+// ==================== Multi-Sig Functions ====================
+
+/// Enable multi-sig admin with specified signers and threshold
+pub fn enable_multisig(
+    env: &Env,
+    caller: &Address,
+    signers: Vec<Address>,
+    threshold: u32,
+) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    if threshold == 0 || threshold > signers.len() {
+        return Err(AdminError::InvalidParameter);
+    }
+
+    // Check for duplicate signers
+    for i in 0..signers.len() {
+        for j in (i + 1)..signers.len() {
+            if signers.get(i).unwrap() == signers.get(j).unwrap() {
+                return Err(AdminError::DuplicateSigner);
+            }
+        }
+    }
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MultiSigEnabled, &true);
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MultiSigSigners, &signers);
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MultiSigThreshold, &threshold);
+
+    Ok(())
+}
+
+/// Disable multi-sig admin
+pub fn disable_multisig(env: &Env, caller: &Address) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MultiSigEnabled, &false);
+
+    Ok(())
+}
+
+/// Check if multi-sig is enabled
+pub fn is_multisig_enabled(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::MultiSigEnabled)
+        .unwrap_or(false)
+}
+
+/// Check if address is a multi-sig signer
+pub fn is_multisig_signer(env: &Env, address: &Address) -> bool {
+    if !is_multisig_enabled(env) {
+        return false;
+    }
+
+    let signers: Vec<Address> = env
+        .storage()
+        .instance()
+        .get(&AdminStorageKey::MultiSigSigners)
+        .unwrap_or(Vec::new(env));
+
+    for i in 0..signers.len() {
+        if &signers.get(i).unwrap() == address {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Get multi-sig signers
+pub fn get_multisig_signers(env: &Env) -> Vec<Address> {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::MultiSigSigners)
+        .unwrap_or(Vec::new(env))
+}
+
+/// Get multi-sig threshold
+pub fn get_multisig_threshold(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&AdminStorageKey::MultiSigThreshold)
+        .unwrap_or(0)
+}
+
+/// Add a multi-sig signer
+pub fn add_multisig_signer(
+    env: &Env,
+    caller: &Address,
+    new_signer: Address,
+) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    if !is_multisig_enabled(env) {
+        return Err(AdminError::NotInitialized);
+    }
+
+    let mut signers: Vec<Address> = get_multisig_signers(env);
+
+    // Check if already a signer
+    for i in 0..signers.len() {
+        if signers.get(i).unwrap() == new_signer {
+            return Err(AdminError::DuplicateSigner);
+        }
+    }
+
+    signers.push_back(new_signer.clone());
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MultiSigSigners, &signers);
+
+    emit_multisig_signer_added(env, new_signer, caller.clone());
+    Ok(())
+}
+
+/// Remove a multi-sig signer
+pub fn remove_multisig_signer(
+    env: &Env,
+    caller: &Address,
+    signer_to_remove: Address,
+) -> Result<(), AdminError> {
+    require_admin(env, caller)?;
+    caller.require_auth();
+
+    if !is_multisig_enabled(env) {
+        return Err(AdminError::NotInitialized);
+    }
+
+    let signers: Vec<Address> = get_multisig_signers(env);
+    let threshold = get_multisig_threshold(env);
+
+    // Ensure we don't go below threshold
+    if signers.len() - 1 < threshold {
+        return Err(AdminError::InsufficientSignatures);
+    }
+
+    let mut new_signers = Vec::new(env);
+    let mut found = false;
+
+    for i in 0..signers.len() {
+        let signer = signers.get(i).unwrap();
+        if signer == signer_to_remove {
+            found = true;
+        } else {
+            new_signers.push_back(signer);
+        }
+    }
+
+    if !found {
+        return Err(AdminError::Unauthorized);
+    }
+
+    env.storage()
+        .instance()
+        .set(&AdminStorageKey::MultiSigSigners, &new_signers);
+
+    emit_multisig_signer_removed(env, signer_to_remove, caller.clone());
+    Ok(())
+}

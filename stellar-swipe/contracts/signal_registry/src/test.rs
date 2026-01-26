@@ -6,6 +6,39 @@ use super::*;
 use soroban_sdk::{testutils::Address as _, Env};
 
 #[test]
+fn test_initialize_and_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let stored_admin = client.get_admin();
+    assert_eq!(stored_admin, admin);
+}
+
+#[test]
+fn test_admin_cannot_initialize_twice() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+
+    client.initialize(&admin1);
+    let result = client.try_initialize(&admin2);
+    assert!(result.is_err());
+}
+
+#[test]
 fn create_and_read_signal() {
     let env = Env::default();
     env.mock_all_auths();
@@ -13,6 +46,9 @@ fn create_and_read_signal() {
     #[allow(deprecated)]
     let contract_id = env.register_contract(None, SignalRegistry);
     let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
 
     let provider = Address::generate(&env);
     let expiry = env.ledger().timestamp() + 60;
@@ -32,6 +68,253 @@ fn create_and_read_signal() {
 }
 
 #[test]
+fn test_pause_blocks_signals() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let provider = Address::generate(&env);
+    let expiry = env.ledger().timestamp() + 60;
+
+    // Pause trading
+    client.pause_trading(&admin);
+    assert!(client.is_paused());
+
+    // Try to create signal - should fail
+    let result = client.try_create_signal(
+        &provider,
+        &String::from_str(&env, "XLM/USDC"),
+        &SignalAction::Buy,
+        &100_000,
+        &String::from_str(&env, "Test"),
+        &expiry,
+    );
+
+    assert!(result.is_err());
+
+    // Unpause
+    client.unpause_trading(&admin);
+    assert!(!client.is_paused());
+
+    // Now should work
+    let signal_id = client.create_signal(
+        &provider,
+        &String::from_str(&env, "XLM/USDC"),
+        &SignalAction::Buy,
+        &100_000,
+        &String::from_str(&env, "Test"),
+        &expiry,
+    );
+
+    assert!(signal_id > 0);
+}
+
+#[test]
+fn test_pause_auto_expires() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Pause trading
+    client.pause_trading(&admin);
+    assert!(client.is_paused());
+
+    // Move time forward past 48 hours
+    use soroban_sdk::testutils::Ledger;
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 48 * 60 * 60 + 1);
+
+    // Should be auto-unpaused
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_admin_config_updates() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Update min stake
+    client.set_min_stake(&admin, &200_000_000);
+
+    // Update trade fee
+    client.set_trade_fee(&admin, &20);
+
+    // Update risk defaults
+    client.set_risk_defaults(&admin, &20, &25);
+
+    let config = client.get_config();
+    assert_eq!(config.min_stake, 200_000_000);
+    assert_eq!(config.trade_fee_bps, 20);
+    assert_eq!(config.default_stop_loss, 20);
+    assert_eq!(config.default_position_limit, 25);
+}
+
+#[test]
+fn test_unauthorized_admin_actions() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+
+    client.initialize(&admin);
+
+    // Attacker tries to update min stake
+    let result = client.try_set_min_stake(&attacker, &500_000_000);
+    assert!(result.is_err());
+
+    // Attacker tries to pause
+    let result = client.try_pause_trading(&attacker);
+    assert!(result.is_err());
+
+    // Attacker tries to transfer admin
+    let new_admin = Address::generate(&env);
+    let result = client.try_transfer_admin(&attacker, &new_admin);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_transfer_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+
+    client.initialize(&admin1);
+    client.transfer_admin(&admin1, &admin2);
+
+    let current_admin = client.get_admin();
+    assert_eq!(current_admin, admin2);
+
+    // Old admin should no longer work
+    let result = client.try_pause_trading(&admin1);
+    assert!(result.is_err());
+
+    // New admin should work
+    client.pause_trading(&admin2);
+    assert!(client.is_paused());
+}
+
+#[test]
+fn test_multisig_enable_and_use() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signer3 = Address::generate(&env);
+
+    client.initialize(&admin);
+
+    let mut signers = Vec::new(&env);
+    signers.push_back(signer1.clone());
+    signers.push_back(signer2.clone());
+    signers.push_back(signer3.clone());
+
+    // Enable multi-sig with 2-of-3 threshold
+    client.enable_multisig(&admin, &signers, &2);
+
+    assert!(client.is_multisig_enabled());
+    assert_eq!(client.get_multisig_threshold(), 2);
+
+    let returned_signers = client.get_multisig_signers();
+    assert_eq!(returned_signers.len(), 3);
+
+    // Any signer should be able to pause
+    client.pause_trading(&signer1);
+    assert!(client.is_paused());
+}
+
+#[test]
+fn test_multisig_add_remove_signers() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signer4 = Address::generate(&env);
+
+    client.initialize(&admin);
+
+    let mut signers = Vec::new(&env);
+    signers.push_back(admin.clone());
+    signers.push_back(signer1.clone());
+    signers.push_back(signer2.clone());
+
+    client.enable_multisig(&admin, &signers, &2);
+
+    assert_eq!(client.get_multisig_signers().len(), 3);
+
+    // Add one more, then we can remove
+    client.add_multisig_signer(&admin, &signer4);
+    client.remove_multisig_signer(&admin, &signer1);
+    assert_eq!(client.get_multisig_signers().len(), 3);
+}
+
+#[test]
+fn test_invalid_parameter_updates() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Invalid min stake (negative)
+    let result = client.try_set_min_stake(&admin, &-100);
+    assert!(result.is_err());
+
+    // Invalid trade fee (> 100 bps)
+    let result = client.try_set_trade_fee(&admin, &150);
+    assert!(result.is_err());
+
+    // Invalid risk parameters (> 100%)
+    let result = client.try_set_risk_defaults(&admin, &150, &20);
+    assert!(result.is_err());
+}
+
+#[test]
 fn provider_stats_initialized() {
     let env = Env::default();
     env.mock_all_auths();
@@ -39,6 +322,9 @@ fn provider_stats_initialized() {
     #[allow(deprecated)]
     let contract_id = env.register_contract(None, SignalRegistry);
     let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
 
     let provider = Address::generate(&env);
     let expiry = env.ledger().timestamp() + 120;
@@ -54,4 +340,239 @@ fn provider_stats_initialized() {
 
     let stats = client.get_provider_stats(&provider).unwrap();
     assert_eq!(stats.total_copies, 0);
+}
+
+#[test]
+fn test_fee_calculation_and_collection() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Set platform treasury
+    let platform_treasury = Address::generate(&env);
+    client.set_platform_treasury(&admin, &platform_treasury);
+
+    // Preview fee for 1000 XLM trade
+    let breakdown = client.calculate_fee_preview(&1_000_000_000);
+
+    assert_eq!(breakdown.total_fee, 1_000_000); // 1 XLM (0.1%)
+    assert_eq!(breakdown.platform_fee, 700_000); // 0.7 XLM (70%)
+    assert_eq!(breakdown.provider_fee, 300_000); // 0.3 XLM (30%)
+    assert_eq!(breakdown.trade_amount_after_fee, 999_000_000); // 999 XLM
+}
+
+#[test]
+fn test_minimum_trade_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Trade below minimum should fail
+    let result = client.try_calculate_fee_preview(&999);
+    assert!(result.is_err());
+
+    // Trade at minimum should work
+    let result = client.try_calculate_fee_preview(&1000);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_platform_treasury_management() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // No treasury set initially
+    assert_eq!(client.get_platform_treasury(), None);
+
+    // Set treasury
+    let treasury = Address::generate(&env);
+    client.set_platform_treasury(&admin, &treasury);
+    assert_eq!(client.get_platform_treasury(), Some(treasury));
+}
+
+#[test]
+fn test_unauthorized_treasury_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.initialize(&admin);
+
+    // Non-admin cannot set treasury
+    let result = client.try_set_platform_treasury(&attacker, &treasury);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_get_active_signals_excludes_expired() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Set a known timestamp
+    use soroban_sdk::testutils::Ledger;
+    env.ledger().set_timestamp(10000);
+
+    let provider = Address::generate(&env);
+    let current_time = env.ledger().timestamp();
+
+    // Create 3 active signals
+    for _i in 0..3 {
+        client.create_signal(
+            &provider,
+            &String::from_str(&env, "XLM/USDC"),
+            &SignalAction::Buy,
+            &100_000,
+            &String::from_str(&env, "Active"),
+            &(current_time + 10000),
+        );
+    }
+
+    // Create 2 expired signals
+    for _i in 0..2 {
+        client.create_signal(
+            &provider,
+            &String::from_str(&env, "XLM/BTC"),
+            &SignalAction::Sell,
+            &200_000,
+            &String::from_str(&env, "Expired"),
+            &(current_time + 10),
+        );
+    }
+
+    // Move time to expire the second batch
+    env.ledger().set_timestamp(current_time + 100);
+
+    // Get active signals - should only return 3
+    let active = client.get_active_signals();
+    assert_eq!(active.len(), 3);
+
+    // All returned signals should be active
+    for i in 0..active.len() {
+        let signal = active.get(i).unwrap();
+        assert_eq!(signal.rationale, String::from_str(&env, "Active"));
+    }
+}
+
+#[test]
+fn test_cleanup_batch_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Set a known timestamp
+    use soroban_sdk::testutils::Ledger;
+    env.ledger().set_timestamp(10000);
+
+    let provider = Address::generate(&env);
+    let current_time = env.ledger().timestamp();
+
+    // Create 150 expired signals
+    for _ in 0..150 {
+        client.create_signal(
+            &provider,
+            &String::from_str(&env, "XLM/USDC"),
+            &SignalAction::Buy,
+            &100_000,
+            &String::from_str(&env, "Test"),
+            &(current_time + 10),
+        );
+    }
+
+    // Move time to expire all
+    env.ledger().set_timestamp(current_time + 100);
+
+    // Cleanup with limit of 50
+    let (processed, expired) = client.cleanup_expired_signals(&50);
+
+    assert_eq!(processed, 50);
+    assert_eq!(expired, 50);
+
+    // Run again to process more
+    let (processed2, expired2) = client.cleanup_expired_signals(&50);
+    assert_eq!(processed2, 50);
+    assert_eq!(expired2, 50);
+}
+
+#[test]
+fn test_pending_expiry_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // Set a known timestamp
+    use soroban_sdk::testutils::Ledger;
+    env.ledger().set_timestamp(10000);
+
+    let provider = Address::generate(&env);
+    let current_time = env.ledger().timestamp();
+
+    // Create signals that will be past expiry
+    for _i in 0..4 {
+        client.create_signal(
+            &provider,
+            &String::from_str(&env, "XLM/USDC"),
+            &SignalAction::Buy,
+            &100_000,
+            &String::from_str(&env, "Test"),
+            &(current_time + 10),
+        );
+    }
+
+    // Initially no pending expiry
+    assert_eq!(client.get_pending_expiry_count(), 0);
+
+    // Move time forward
+    env.ledger().set_timestamp(current_time + 100);
+
+    // Now should have 4 pending expiry
+    assert_eq!(client.get_pending_expiry_count(), 4);
+
+    // After cleanup, none pending
+    client.cleanup_expired_signals(&10);
+    assert_eq!(client.get_pending_expiry_count(), 0);
 }
