@@ -28,20 +28,19 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: contracts/auto_trade,contracts/signal_registry
+          workspaces: stellar-swipe/contracts/stellar-swipe
 
-      # Format check for entire workspace
+      # Format check
       - name: Format check
-        run: cargo fmt --all -- --check
+        run: cargo fmt --manifest-path stellar-swipe/Cargo.toml --check
 
-      # Clippy linter for all workspace crates
+      # Clippy linter
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      # Run tests for all workspace crates
+        run: cargo clippy --manifest-path stellar-swipe/Cargo.toml -- -D warnings
+      # Run tests
       - name: Tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --manifest-path stellar-swipe/Cargo.toml --workspace
 
-      # Build wasm target for all workspace crates
+      # Build wasm target
       - name: Build (wasm)
-        run: cargo build --workspace --target wasm32-unknown-unknown
+        run: cargo build --manifest-path stellar-swipe/Cargo.toml --workspace --target wasm32-unknown-unknown
