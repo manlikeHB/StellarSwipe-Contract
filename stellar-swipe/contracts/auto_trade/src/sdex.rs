@@ -101,10 +101,7 @@ pub fn execute_limit_order(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, LedgerInfo},
-        Address, Env,
-    };
+    use soroban_sdk::{testutils::{Ledger, LedgerInfo}, Env, Address};
 
     fn setup_env() -> (Env, Address) {
         let env = Env::default();
