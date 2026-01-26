@@ -106,16 +106,17 @@ mod tests {
     let env = Env::default();
     let contract_id = Address::generate(&env);
 
-    env.ledger().set(LedgerInfo {
-        timestamp: 1_000,
-        protocol_version: 25,  // Updated to match current Stellar protocol
-        sequence_number: 1,
-        network_id: [0; 32],
-        base_reserve: 10,
-        max_entry_ttl: 1000,
-        min_persistent_entry_ttl: 100,
-        min_temp_entry_ttl: 100,
-    });
+env.ledger().set(LedgerInfo {
+    timestamp: 1_000,
+    protocol_version: 20,  // must match the Soroban test host version
+    sequence_number: 1,
+    network_id: [0; 32],
+    base_reserve: 10,
+    max_entry_ttl: 1000,
+    min_persistent_entry_ttl: 100,
+    min_temp_entry_ttl: 100,
+});
+
 
     (env, contract_id)
 }
