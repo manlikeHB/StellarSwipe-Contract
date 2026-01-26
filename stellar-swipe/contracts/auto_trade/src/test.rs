@@ -17,7 +17,7 @@ fn setup_env() -> Env {
     env
 }
 
-fn setup_signal(env: &Env, signal_id: u64, expiry: u64) -> Signal {
+fn setup_signal(_env: &Env, signal_id: u64, expiry: u64) -> Signal {
     Signal {
         signal_id,
         price: 100,
@@ -33,7 +33,7 @@ fn test_execute_trade_invalid_amount() {
     let user = Address::generate(&env);
 
     env.as_contract(&contract_id, || {
-        let res = execute_trade(
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             1,
@@ -52,7 +52,7 @@ fn test_execute_trade_signal_not_found() {
     let user = Address::generate(&env);
 
     env.as_contract(&contract_id, || {
-        let res = execute_trade(
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             1,
@@ -74,7 +74,7 @@ fn test_execute_trade_signal_expired() {
 
     env.as_contract(&contract_id, || {
         env.storage().persistent().set(&MockDataKey::Signal(signal_id), &signal);
-        let res = execute_trade(
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -96,8 +96,8 @@ fn test_execute_trade_unauthorized() {
 
     env.as_contract(&contract_id, || {
         env.storage().persistent().set(&MockDataKey::Signal(signal_id), &signal);
-        // Not setting authorized to true, so false by default
-        let res = execute_trade(
+        // Not setting authorized to true
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -120,10 +120,9 @@ fn test_execute_trade_insufficient_balance() {
     env.as_contract(&contract_id, || {
         env.storage().persistent().set(&MockDataKey::Signal(signal_id), &signal);
         env.storage().persistent().set(&MockDataKey::Authorized(user.clone()), &true);
-        // Set balance to 50, request 100
         let balance_key = (user.clone(), symbol_short!("balance"));
-        env.storage().temporary().set(&balance_key, &50i128);
-        let res = execute_trade(
+        env.storage().temporary().set(&balance_key, &50i128); // insufficient
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -150,7 +149,8 @@ fn test_execute_trade_market_full_fill() {
         env.storage().temporary().set(&balance_key, &500i128);
         let liquidity_key = (symbol_short!("liquidity"), signal_id);
         env.storage().temporary().set(&liquidity_key, &500i128);
-        let res = execute_trade(
+
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -179,7 +179,8 @@ fn test_execute_trade_market_partial_fill() {
         env.storage().temporary().set(&balance_key, &500i128);
         let liquidity_key = (symbol_short!("liquidity"), signal_id);
         env.storage().temporary().set(&liquidity_key, &100i128);
-        let res = execute_trade(
+
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -208,7 +209,8 @@ fn test_execute_trade_limit_filled() {
         env.storage().temporary().set(&balance_key, &500i128);
         let price_key = (symbol_short!("price"), signal_id);
         env.storage().temporary().set(&price_key, &90i128); // market_price < signal.price
-        let res = execute_trade(
+
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -237,7 +239,8 @@ fn test_execute_trade_limit_not_filled() {
         env.storage().temporary().set(&balance_key, &500i128);
         let price_key = (symbol_short!("price"), signal_id);
         env.storage().temporary().set(&price_key, &150i128); // market_price > signal.price
-        let res = execute_trade(
+
+        let res = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -269,7 +272,7 @@ fn test_get_trade_existing() {
     });
 
     env.as_contract(&contract_id, || {
-        let _ = execute_trade(
+        let _ = AutoTradeContract::execute_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -279,7 +282,7 @@ fn test_get_trade_existing() {
     });
 
     env.as_contract(&contract_id, || {
-        let trade = get_trade(
+        let trade = AutoTradeContract::get_trade(
             env.clone(),
             user.clone(),
             signal_id,
@@ -297,7 +300,7 @@ fn test_get_trade_non_existing() {
     let signal_id = 999;
 
     env.as_contract(&contract_id, || {
-        let trade = get_trade(
+        let trade = AutoTradeContract::get_trade(
             env.clone(),
             user.clone(),
             signal_id,
