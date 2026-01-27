@@ -3,6 +3,7 @@
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 
 mod errors;
+mod risk;
 mod sdex;
 mod storage;
 
@@ -88,6 +89,35 @@ impl AutoTradeContract {
             return Err(AutoTradeError::InsufficientBalance);
         }
 
+        // Determine if this is a sell operation (simplified)
+        let is_sell = false; // This should be determined from the signal or order details
+
+        // Set current asset price for risk calculations
+        risk::set_asset_price(&env, signal.base_asset, signal.price);
+
+        // Perform risk checks
+        let stop_loss_triggered = risk::validate_trade(
+            &env,
+            &user,
+            signal.base_asset,
+            amount,
+            signal.price,
+            is_sell,
+        )?;
+
+        // If stop-loss is triggered, emit event and proceed with sell
+        if stop_loss_triggered {
+            #[allow(deprecated)]
+            env.events().publish(
+                (
+                    Symbol::new(&env, "stop_loss_triggered"),
+                    user.clone(),
+                    signal.base_asset,
+                ),
+                signal.price,
+            );
+        }
+
         let execution = match order_type {
             OrderType::Market => sdex::execute_market_order(&env, &user, &signal, amount)?,
             OrderType::Limit => sdex::execute_limit_order(&env, &user, &signal, amount)?,
@@ -108,8 +138,34 @@ impl AutoTradeContract {
             executed_amount: execution.executed_amount,
             executed_price: execution.executed_price,
             timestamp: env.ledger().timestamp(),
-            status,
+            status: status.clone(),
         };
+
+        // Update position tracking
+        if execution.executed_amount > 0 {
+            let positions = risk::get_user_positions(&env, &user);
+            let current_amount = positions
+                .get(signal.base_asset)
+                .map(|p| p.amount)
+                .unwrap_or(0);
+
+            let new_amount = if is_sell {
+                current_amount - execution.executed_amount
+            } else {
+                current_amount + execution.executed_amount
+            };
+
+            risk::update_position(
+                &env,
+                &user,
+                signal.base_asset,
+                new_amount,
+                execution.executed_price,
+            );
+
+            // Record trade in history
+            risk::add_trade_record(&env, &user, signal_id, execution.executed_amount);
+        }
 
         env.storage()
             .persistent()
@@ -121,6 +177,19 @@ impl AutoTradeContract {
             trade.clone(),
         );
 
+        // Emit event if trade was blocked by risk limits (status = Failed due to risk)
+        if status == TradeStatus::Failed {
+            #[allow(deprecated)]
+            env.events().publish(
+                (
+                    Symbol::new(&env, "risk_limit_block"),
+                    user.clone(),
+                    signal_id,
+                ),
+                amount,
+            );
+        }
+
         Ok(TradeResult { trade })
     }
 
@@ -129,6 +198,33 @@ impl AutoTradeContract {
         env.storage()
             .persistent()
             .get(&DataKey::Trades(user, signal_id))
+    }
+
+    /// Get user's risk configuration
+    pub fn get_risk_config(env: Env, user: Address) -> risk::RiskConfig {
+        risk::get_risk_config(&env, &user)
+    }
+
+    /// Update user's risk configuration
+    pub fn set_risk_config(env: Env, user: Address, config: risk::RiskConfig) {
+        user.require_auth();
+        risk::set_risk_config(&env, &user, &config);
+
+        #[allow(deprecated)]
+        env.events().publish(
+            (Symbol::new(&env, "risk_config_updated"), user.clone()),
+            config,
+        );
+    }
+
+    /// Get user's current positions
+    pub fn get_user_positions(env: Env, user: Address) -> soroban_sdk::Map<u32, risk::Position> {
+        risk::get_user_positions(&env, &user)
+    }
+
+    /// Get user's trade history
+    pub fn get_trade_history(env: Env, user: Address) -> soroban_sdk::Vec<risk::TradeRecord> {
+        risk::get_trade_history(&env, &user)
     }
 }
 

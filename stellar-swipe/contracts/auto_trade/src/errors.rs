@@ -10,4 +10,7 @@ pub enum AutoTradeError {
     SignalExpired = 4,
     InsufficientBalance = 5,
     InsufficientLiquidity = 6,
+    DailyTradeLimitExceeded = 7,
+    PositionLimitExceeded = 8,
+    StopLossTriggered = 9,
 }
