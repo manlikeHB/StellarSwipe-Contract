@@ -5,8 +5,6 @@
 //! Gas: ~O(limit) per get_trade_history query.
 
 use soroban_sdk::{contracttype, Address, Env, Vec};
-
-
 /// Default page size for trade history
 pub const DEFAULT_HISTORY_LIMIT: u32 = 20;
 
@@ -94,12 +92,7 @@ fn get_trade_by_index(env: &Env, user: &Address, index: u64) -> Option<HistoryTr
 }
 
 /// Get trade history for user, newest first, with pagination.
-pub fn get_trade_history(
-    env: &Env,
-    user: &Address,
-    offset: u32,
-    limit: u32,
-) -> Vec<HistoryTrade> {
+pub fn get_trade_history(env: &Env, user: &Address, offset: u32, limit: u32) -> Vec<HistoryTrade> {
     let count = get_user_trade_count(env, user);
     if count == 0 {
         return Vec::new(env);

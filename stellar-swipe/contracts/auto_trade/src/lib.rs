@@ -246,7 +246,10 @@ impl AutoTradeContract {
     }
 
     /// Get user's trade history (risk module, legacy)
-    pub fn get_trade_history_legacy(env: Env, user: Address) -> soroban_sdk::Vec<risk::TradeRecord> {
+    pub fn get_trade_history_legacy(
+        env: Env,
+        user: Address,
+    ) -> soroban_sdk::Vec<risk::TradeRecord> {
         risk::get_trade_history(&env, &user)
     }
 

@@ -36,7 +36,8 @@ pub fn get_portfolio(env: &Env, user: &Address) -> Portfolio {
     for i in 0..keys.len() {
         if let Some(asset_id) = keys.get(i) {
             if let Some(position) = positions.get(asset_id) {
-                let current_price = risk::get_asset_price(env, asset_id).unwrap_or(position.entry_price);
+                let current_price =
+                    risk::get_asset_price(env, asset_id).unwrap_or(position.entry_price);
                 let current_value_xlm = position.amount * current_price;
                 let unrealized_pnl = (current_price - position.entry_price) * position.amount;
 
