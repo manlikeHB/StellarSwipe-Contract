@@ -1,4 +1,4 @@
-use soroban_sdk::{Env, Map, Vec};
+use soroban_sdk::{Address, Env, Map, Vec};
 
 use crate::events::emit_signal_expired;
 use crate::types::{Signal, SignalStatus};
@@ -100,6 +100,37 @@ pub fn get_active_signals(env: &Env, signals_map: &Map<u64, Signal>) -> Vec<Sign
     }
 
     active_signals
+}
+
+/// Check if address is in list
+fn is_in_list(list: &Vec<Address>, addr: &Address) -> bool {
+    for i in 0..list.len() {
+        if list.get(i).unwrap() == *addr {
+            return true;
+        }
+    }
+    false
+}
+
+/// Get active signals filtered to only those from followed providers.
+/// If followed_providers is empty, returns empty Vec.
+pub fn get_active_signals_filtered(
+    env: &Env,
+    signals_map: &Map<u64, Signal>,
+    followed_providers: &Vec<Address>,
+) -> Vec<Signal> {
+    if followed_providers.is_empty() {
+        return Vec::new(env);
+    }
+    let all_active = get_active_signals(env, signals_map);
+    let mut filtered = Vec::new(env);
+    for i in 0..all_active.len() {
+        let signal = all_active.get(i).unwrap();
+        if is_in_list(followed_providers, &signal.provider) {
+            filtered.push_back(signal);
+        }
+    }
+    filtered
 }
 
 /// Cleanup expired signals in batches

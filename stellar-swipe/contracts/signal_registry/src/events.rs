@@ -92,3 +92,13 @@ pub fn emit_provider_stats_updated(
     env.events()
         .publish(topics, (success_rate, avg_return, total_volume));
 }
+
+pub fn emit_follow_gained(env: &Env, user: Address, provider: Address, new_count: u32) {
+    let topics = (Symbol::new(env, "follow_gained"), provider, user);
+    env.events().publish(topics, new_count);
+}
+
+pub fn emit_follow_lost(env: &Env, user: Address, provider: Address, new_count: u32) {
+    let topics = (Symbol::new(env, "follow_lost"), provider, user);
+    env.events().publish(topics, new_count);
+}

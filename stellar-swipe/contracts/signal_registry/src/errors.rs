@@ -14,6 +14,7 @@ pub enum AdminError {
     InvalidRiskParameter = 8,
     InsufficientSignatures = 9,
     DuplicateSigner = 10,
+    CannotFollowSelf = 11,
 }
 
 #[contracterror]
@@ -25,6 +26,13 @@ pub enum FeeError {
     ArithmeticOverflow = 102,
     InvalidAmount = 103,
     InvalidProviderAddress = 104,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum SocialError {
+    CannotFollowSelf = 50,
 }
 
 #[contracterror]

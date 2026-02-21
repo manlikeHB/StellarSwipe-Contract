@@ -9,6 +9,7 @@ mod expiry;
 #[allow(dead_code)]
 mod fees;
 mod performance;
+mod social;
 mod stake;
 mod submission;
 mod types;
@@ -475,11 +476,40 @@ impl SignalRegistry {
        EXPIRY MANAGEMENT
     ========================== */
 
-    /// Get signal with automatic expiry checking
-    /// Get all active (non-expired) signals for feed
-    pub fn get_active_signals(env: Env) -> Vec<Signal> {
+    /// Get all active (non-expired) signals for feed.
+    /// If followed_only is true, only returns signals from providers `user` follows.
+    pub fn get_active_signals(env: Env, user: Address, followed_only: bool) -> Vec<Signal> {
         let signals = Self::get_signals_map(&env);
-        expiry::get_active_signals(&env, &signals)
+        if followed_only {
+            let followed = social::get_followed_providers(&env, &user);
+            expiry::get_active_signals_filtered(&env, &signals, &followed)
+        } else {
+            expiry::get_active_signals(&env, &signals)
+        }
+    }
+
+    /* =========================
+       SOCIAL / FOLLOW FUNCTIONS
+    ========================== */
+
+    /// Follow a provider. Idempotent if already following.
+    pub fn follow_provider(env: Env, user: Address, provider: Address) -> Result<(), AdminError> {
+        social::follow_provider(&env, user, provider).map_err(|_| AdminError::CannotFollowSelf)
+    }
+
+    /// Unfollow a provider. No error if not following.
+    pub fn unfollow_provider(env: Env, user: Address, provider: Address) -> Result<(), AdminError> {
+        social::unfollow_provider(&env, user, provider).map_err(|_| AdminError::Unauthorized)
+    }
+
+    /// Get list of providers user follows
+    pub fn get_followed_providers(env: Env, user: Address) -> Vec<Address> {
+        social::get_followed_providers(&env, &user)
+    }
+
+    /// Get follower count for a provider
+    pub fn get_follower_count(env: Env, provider: Address) -> u32 {
+        social::get_follower_count(&env, &provider)
     }
 
     /// Cleanup expired signals in batches

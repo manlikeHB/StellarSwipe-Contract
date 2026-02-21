@@ -475,8 +475,9 @@ fn test_get_active_signals_excludes_expired() {
     // Move time to expire the second batch
     env.ledger().set_timestamp(current_time + 100);
 
-    // Get active signals - should only return 3
-    let active = client.get_active_signals();
+    // Get active signals - should only return 3 (followed_only = false)
+    let any_user = Address::generate(&env);
+    let active = client.get_active_signals(&any_user, &false);
     assert_eq!(active.len(), 3);
 
     // All returned signals should be active
@@ -575,4 +576,201 @@ fn test_pending_expiry_count() {
     // After cleanup, none pending
     client.cleanup_expired_signals(&10);
     assert_eq!(client.get_pending_expiry_count(), 0);
+}
+
+// ========================================
+// Social / Follow Tests
+// ========================================
+
+#[test]
+fn test_follow_provider() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let user = Address::generate(&env);
+    let provider = Address::generate(&env);
+
+    client.follow_provider(&user, &provider);
+    assert_eq!(client.get_follower_count(&provider), 1);
+
+    let followed = client.get_followed_providers(&user);
+    assert_eq!(followed.len(), 1);
+    assert_eq!(followed.get(0).unwrap(), provider);
+}
+
+#[test]
+fn test_follow_idempotent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let user = Address::generate(&env);
+    let provider = Address::generate(&env);
+
+    client.follow_provider(&user, &provider);
+    client.follow_provider(&user, &provider); // idempotent
+    assert_eq!(client.get_follower_count(&provider), 1);
+}
+
+#[test]
+fn test_cannot_follow_self() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let user = Address::generate(&env);
+    let result = client.try_follow_provider(&user, &user);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_unfollow_provider() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let user = Address::generate(&env);
+    let provider = Address::generate(&env);
+
+    client.follow_provider(&user, &provider);
+    assert_eq!(client.get_follower_count(&provider), 1);
+
+    client.unfollow_provider(&user, &provider);
+    assert_eq!(client.get_follower_count(&provider), 0);
+    assert_eq!(client.get_followed_providers(&user).len(), 0);
+}
+
+#[test]
+fn test_unfollow_not_following_no_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let user = Address::generate(&env);
+    let provider = Address::generate(&env);
+
+    client.unfollow_provider(&user, &provider); // no error
+}
+
+#[test]
+fn test_feed_filtered_by_followed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    use soroban_sdk::testutils::Ledger;
+    env.ledger().set_timestamp(10000);
+    let current_time = env.ledger().timestamp();
+
+    let provider_a = Address::generate(&env);
+    let provider_b = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    // Create signals from both providers
+    client.create_signal(
+        &provider_a,
+        &String::from_str(&env, "XLM/USDC"),
+        &SignalAction::Buy,
+        &100_000,
+        &String::from_str(&env, "A1"),
+        &(current_time + 10000),
+    );
+    client.create_signal(
+        &provider_b,
+        &String::from_str(&env, "XLM/USDC"),
+        &SignalAction::Buy,
+        &100_000,
+        &String::from_str(&env, "B1"),
+        &(current_time + 10000),
+    );
+
+    // User follows only provider_a
+    client.follow_provider(&user, &provider_a);
+
+    // All signals (followed_only = false)
+    let all_active = client.get_active_signals(&user, &false);
+    assert_eq!(all_active.len(), 2);
+
+    // Filtered feed (followed_only = true) - only provider_a
+    let followed_active = client.get_active_signals(&user, &true);
+    assert_eq!(followed_active.len(), 1);
+    assert_eq!(followed_active.get(0).unwrap().provider, provider_a);
+}
+
+#[test]
+fn test_follow_multiple_providers_follower_counts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    #[allow(deprecated)]
+    let contract_id = env.register_contract(None, SignalRegistry);
+    let client = SignalRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    let user = Address::generate(&env);
+    let p1 = Address::generate(&env);
+    let p2 = Address::generate(&env);
+    let p3 = Address::generate(&env);
+
+    client.follow_provider(&user, &p1);
+    client.follow_provider(&user, &p2);
+    client.follow_provider(&user, &p3);
+
+    assert_eq!(client.get_follower_count(&p1), 1);
+    assert_eq!(client.get_follower_count(&p2), 1);
+    assert_eq!(client.get_follower_count(&p3), 1);
+
+    let followed = client.get_followed_providers(&user);
+    assert_eq!(followed.len(), 3);
+
+    // Unfollow 2
+    client.unfollow_provider(&user, &p1);
+    client.unfollow_provider(&user, &p2);
+
+    assert_eq!(client.get_follower_count(&p1), 0);
+    assert_eq!(client.get_follower_count(&p2), 0);
+    assert_eq!(client.get_follower_count(&p3), 1);
+
+    let followed_after = client.get_followed_providers(&user);
+    assert_eq!(followed_after.len(), 1);
+    assert_eq!(followed_after.get(0).unwrap(), p3);
 }
