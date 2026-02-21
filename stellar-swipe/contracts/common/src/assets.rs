@@ -3,6 +3,8 @@
 //! Supports native (XLM), issued assets (code + issuer). Format: "ASSET1:ISSUER1/ASSET2:ISSUER2"
 //! or "XLM/ASSET2:ISSUER2". All Stellar assets use 7 decimal precision.
 
+#![allow(clippy::manual_range_contains)]
+
 use soroban_sdk::{contracttype, Address, Bytes, Env, String};
 
 /// Native XLM asset code
@@ -111,9 +113,7 @@ fn validate_asset_part(bytes: &Bytes, start: u32, end: u32) -> Result<(), AssetP
 
     match colon_at {
         None => {
-            if is_native_xlm(bytes, start, end) {
-                Ok(())
-            } else if validate_asset_code_bytes(bytes, start, end) {
+            if is_native_xlm(bytes, start, end) || validate_asset_code_bytes(bytes, start, end) {
                 Ok(())
             } else {
                 Err(AssetPairError::InvalidAssetCode)
@@ -200,10 +200,7 @@ mod tests {
     #[test]
     fn test_xlm_usdc_with_issuer_valid() {
         let env = Env::default();
-        let pair = s(
-            &env,
-            "XLM/USDC:GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX",
-        );
+        let pair = s(&env, "XLM/USDC:GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX");
         assert!(validate_asset_pair(&env, &pair).is_ok());
     }
 
@@ -226,14 +223,8 @@ mod tests {
     #[test]
     fn test_invalid_format_empty_base() {
         let env = Env::default();
-        let pair = s(
-            &env,
-            "/USDC:GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX",
-        );
-        assert_eq!(
-            validate_asset_pair(&env, &pair),
-            Err(AssetPairError::InvalidFormat)
-        );
+        let pair = s(&env, "/USDC:GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX");
+        assert_eq!(validate_asset_pair(&env, &pair), Err(AssetPairError::InvalidFormat));
     }
 
     #[test]
@@ -265,10 +256,7 @@ mod tests {
     #[test]
     fn test_xlm_btc_valid() {
         let env = Env::default();
-        let pair = s(
-            &env,
-            "XLM/BTC:GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX",
-        );
+        let pair = s(&env, "XLM/BTC:GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX");
         assert!(validate_asset_pair(&env, &pair).is_ok());
     }
 }
