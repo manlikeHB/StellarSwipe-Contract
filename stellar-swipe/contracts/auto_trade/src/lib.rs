@@ -2,6 +2,7 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 
+mod auth;
 mod errors;
 mod history;
 mod multi_asset;
@@ -84,7 +85,7 @@ impl AutoTradeContract {
             return Err(AutoTradeError::SignalExpired);
         }
 
-        if !storage::is_authorized(&env, &user) {
+        if !auth::is_authorized(&env, &user, amount) {
             return Err(AutoTradeError::Unauthorized);
         }
 
@@ -266,6 +267,26 @@ impl AutoTradeContract {
     /// Get user portfolio with holdings and P&L
     pub fn get_portfolio(env: Env, user: Address) -> portfolio::Portfolio {
         portfolio::get_portfolio(&env, &user)
+    }
+
+    /// Grant authorization to execute trades
+    pub fn grant_authorization(
+        env: Env,
+        user: Address,
+        max_amount: i128,
+        duration_days: u32,
+    ) -> Result<(), AutoTradeError> {
+        auth::grant_authorization(&env, &user, max_amount, duration_days)
+    }
+
+    /// Revoke authorization
+    pub fn revoke_authorization(env: Env, user: Address) -> Result<(), AutoTradeError> {
+        auth::revoke_authorization(&env, &user)
+    }
+
+    /// Get authorization config
+    pub fn get_auth_config(env: Env, user: Address) -> Option<auth::AuthConfig> {
+        auth::get_auth_config(&env, &user)
     }
 }
 
