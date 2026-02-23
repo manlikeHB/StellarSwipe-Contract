@@ -2,6 +2,10 @@
 
 mod admin;
 mod analytics;
+ feature/signal-categorization-tagging
+mod categories;
+=======
+ main
 mod errors;
 #[allow(deprecated)]
 mod events;
@@ -19,10 +23,11 @@ mod submission;
 pub mod templates;
 mod types;
 
-use admin::{
+use admin::
     get_admin, get_admin_config, get_pause_info, init_admin, is_trading_paused, require_not_paused,
     AdminConfig, PauseInfo,
 };
+use categories::{RiskLevel, SignalCategory};
 use errors::{AdminError, TemplateError};
 pub use leaderboard::{get_leaderboard, LeaderboardMetric, ProviderLeaderboard};
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Map, String, Vec};
@@ -217,9 +222,12 @@ impl SignalRegistry {
         price: i128,
         rationale: String,
         expiry: u64,
+        category: SignalCategory,
+        tags: Vec<String>,
+        risk_level: RiskLevel,
     ) -> Result<u64, AdminError> {
         provider.require_auth();
-        Self::create_signal_internal(&env, provider, asset_pair, action, price, rationale, expiry)
+        Self::create_signal_internal(&env, provider, asset_pair, action, price, rationale, expiry, category, tags, risk_level)
     }
 
     fn create_signal_internal(
@@ -230,11 +238,18 @@ impl SignalRegistry {
         price: i128,
         rationale: String,
         expiry: u64,
+        category: SignalCategory,
+        tags: Vec<String>,
+        risk_level: RiskLevel,
     ) -> Result<u64, AdminError> {
         // Check if trading is paused
         require_not_paused(env)?;
 
         Self::validate_asset_pair(env, &asset_pair)?;
+        
+        // Validate and deduplicate tags
+        categories::validate_tags(&tags)?;
+        let unique_tags = categories::deduplicate_tags(env, tags);
 
         let now = env.ledger().timestamp();
 
@@ -263,12 +278,19 @@ impl SignalRegistry {
             successful_executions: 0,
             total_volume: 0,
             total_roi: 0,
+            // Categorization fields
+            category,
+            tags: unique_tags.clone(),
+            risk_level,
         };
 
         // Store signal
         let mut signals = Self::get_signals_map(env);
         signals.set(id, signal);
         Self::save_signals_map(env, &signals);
+        
+        // Update tag popularity
+        categories::increment_tag_popularity(env, &unique_tags);
 
         // Initialize provider stats on first submission
         let mut stats = Self::get_provider_stats_map(env);
@@ -384,9 +406,27 @@ impl SignalRegistry {
         if expiry > env.ledger().timestamp() + MAX_EXPIRY_SECONDS {
             return Err(TemplateError::InvalidExpiry);
         }
+        
+        // Default category, tags, and risk_level for templates
+        let category = SignalCategory::SwingTrade;
+        let tags = Vec::new(&env);
+        let risk_level = RiskLevel::Medium;
 
         let signal_id = Self::create_signal_internal(
+ feature/signal-categorization-tagging
+            &env,
+            submitter,
+            asset_pair,
+            action,
+            price,
+            rationale,
+            expiry,
+            category,
+            tags,
+            risk_level,
+=======
             &env, submitter, asset_pair, action, price, rationale, expiry,
+ main
         )
         .map_err(|_| TemplateError::InvalidTemplate)?;
 
@@ -694,7 +734,11 @@ impl SignalRegistry {
     }
 
     /* =========================
+ feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
  feature/analytics-system
+ main
        ANALYTICS FUNCTIONS
     ========================== */
 
@@ -717,6 +761,161 @@ impl SignalRegistry {
     pub fn get_global_analytics(env: Env) -> analytics::GlobalAnalytics {
         let signals = Self::get_signals_map(&env);
         analytics::calculate_global_analytics(&env, &signals)
+ feature/signal-categorization-tagging
+    }
+    
+    /* =========================
+       CATEGORIZATION & TAGGING FUNCTIONS
+    ========================== */
+    
+    /// Add tags to an existing signal
+    pub fn add_tags_to_signal(
+        env: Env,
+        provider: Address,
+        signal_id: u64,
+        tags: Vec<String>,
+    ) -> Result<(), AdminError> {
+        provider.require_auth();
+        
+        let mut signals = Self::get_signals_map(&env);
+        let mut signal = signals.get(signal_id).ok_or(AdminError::InvalidParameter)?;
+        
+        // Verify provider owns the signal
+        if signal.provider != provider {
+            return Err(AdminError::Unauthorized);
+        }
+        
+        // Validate new tags
+        categories::validate_tags(&tags)?;
+        
+        // Check total tag count
+        if signal.tags.len() + tags.len() > 10 {
+            return Err(AdminError::InvalidParameter);
+        }
+        
+        // Add tags (deduplicate)
+        let mut combined = Vec::new(&env);
+        for i in 0..signal.tags.len() {
+            combined.push_back(signal.tags.get(i).unwrap());
+        }
+        for i in 0..tags.len() {
+            combined.push_back(tags.get(i).unwrap());
+        }
+        
+        signal.tags = categories::deduplicate_tags(&env, combined);
+        let tag_count = signal.tags.len();
+        signals.set(signal_id, signal);
+        Self::save_signals_map(&env, &signals);
+        
+        // Update tag popularity
+        categories::increment_tag_popularity(&env, &tags);
+        
+        // Emit event
+        events::emit_tags_added(&env, signal_id, provider, tag_count);
+        
+        Ok(())
+    }
+    
+    /// Get signals filtered by categories, tags, and risk levels
+    pub fn get_signals_filtered(
+        env: Env,
+        categories: Option<Vec<SignalCategory>>,
+        tags: Option<Vec<String>>,
+        risk_levels: Option<Vec<RiskLevel>>,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<Signal> {
+        let signals_map = Self::get_signals_map(&env);
+        let mut filtered = Vec::new(&env);
+        let now = env.ledger().timestamp();
+        
+        // Collect active signals
+        for key in signals_map.keys() {
+            if let Some(signal) = signals_map.get(key) {
+                if signal.status == SignalStatus::Active && signal.expiry > now {
+                    filtered.push_back(signal);
+                }
+            }
+        }
+        
+        // Filter by categories
+        if let Some(cats) = categories {
+            let mut temp = Vec::new(&env);
+            for i in 0..filtered.len() {
+                let signal = filtered.get(i).unwrap();
+                for j in 0..cats.len() {
+                    if signal.category == cats.get(j).unwrap() {
+                        temp.push_back(signal);
+                        break;
+                    }
+                }
+            }
+            filtered = temp;
+        }
+        
+        // Filter by tags (any match)
+        if let Some(tags_filter) = tags {
+            let mut temp = Vec::new(&env);
+            for i in 0..filtered.len() {
+                let signal = filtered.get(i).unwrap();
+                let mut has_tag = false;
+                for j in 0..tags_filter.len() {
+                    let filter_tag = tags_filter.get(j).unwrap();
+                    for k in 0..signal.tags.len() {
+                        if signal.tags.get(k).unwrap().to_bytes() == filter_tag.to_bytes() {
+                            has_tag = true;
+                            break;
+                        }
+                    }
+                    if has_tag {
+                        break;
+                    }
+                }
+                if has_tag {
+                    temp.push_back(signal);
+                }
+            }
+            filtered = temp;
+        }
+        
+        // Filter by risk levels
+        if let Some(risks) = risk_levels {
+            let mut temp = Vec::new(&env);
+            for i in 0..filtered.len() {
+                let signal = filtered.get(i).unwrap();
+                for j in 0..risks.len() {
+                    if signal.risk_level == risks.get(j).unwrap() {
+                        temp.push_back(signal);
+                        break;
+                    }
+                }
+            }
+            filtered = temp;
+        }
+        
+        // Paginate
+        let total = filtered.len();
+        let start = offset.min(total);
+        let end = (offset + limit).min(total);
+        
+        let mut result = Vec::new(&env);
+        for i in start..end {
+            result.push_back(filtered.get(i).unwrap());
+        }
+        
+        result
+    }
+    
+    /// Get popular tags
+    pub fn get_popular_tags(env: Env, limit: u32) -> Vec<(String, u32)> {
+        categories::get_popular_tags(&env, limit)
+    }
+    
+    /// Auto-suggest tags based on signal rationale
+    pub fn suggest_tags(env: Env, rationale: String) -> Vec<String> {
+        categories::auto_suggest_tags(&env, &rationale)
+=======
+ main
 =======
        SIGNAL IMPORT FUNCTIONS
     ========================== */
@@ -769,8 +968,14 @@ impl SignalRegistry {
 }
 
 mod test;
+ feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+mod test_analytics;
+mod test_categories;
+=======
  feature/analytics-system
 mod test_analytics;
+ main
 =======
 mod test_import;
  main

@@ -4,7 +4,11 @@ test:
 	cargo test
 
 build:
+ feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
  feature/oracle-price-conversion
+ main
 	soroban contract build
 	@ls -lh ../../target/wasm32-unknown-unknown/release/*.wasm
 

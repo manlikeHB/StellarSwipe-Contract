@@ -102,3 +102,8 @@ pub fn emit_follow_lost(env: &Env, user: Address, provider: Address, new_count: 
     let topics = (Symbol::new(env, "follow_lost"), provider, user);
     env.events().publish(topics, new_count);
 }
+
+pub fn emit_tags_added(env: &Env, signal_id: u64, provider: Address, tag_count: u32) {
+    let topics = (Symbol::new(env, "tags_added"), signal_id, provider);
+    env.events().publish(topics, tag_count);
+}
