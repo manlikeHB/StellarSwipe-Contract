@@ -52,10 +52,10 @@ pub struct Signal {
     pub expiry: u64,
     pub status: SignalStatus,
     // Performance tracking fields
-    pub executions: u32,    // Number of trade executions for this signal
+    pub executions: u32,            // Number of trade executions for this signal
     pub successful_executions: u32, // Number of successful trade executions
-    pub total_volume: i128, // Cumulative volume across all executions
-    pub total_roi: i128,    // Cumulative ROI in basis points (10000 = 100%)
+    pub total_volume: i128,         // Cumulative volume across all executions
+    pub total_roi: i128,            // Cumulative ROI in basis points (10000 = 100%)
 }
 
 #[contracttype]
@@ -121,3 +121,29 @@ pub struct SignalPerformanceView {
 // Type alias for backward compatibility
 #[allow(dead_code)]
 pub type SignalStats = ProviderPerformance;
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ImportFormat {
+    CSV,
+    JSON,
+    TradingView,
+    TwitterParse,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ImportRequest {
+    pub format: ImportFormat,
+    pub data: soroban_sdk::Bytes,
+    pub provider: Address,
+    pub validate_only: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ImportResultView {
+    pub success_count: u32,
+    pub error_count: u32,
+    pub signal_ids: soroban_sdk::Vec<u64>,
+}

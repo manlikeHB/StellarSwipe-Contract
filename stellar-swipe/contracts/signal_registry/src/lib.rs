@@ -8,14 +8,15 @@ mod events;
 mod expiry;
 #[allow(dead_code)]
 mod fees;
+mod import;
 mod leaderboard;
 mod performance;
+mod query;
 mod social;
 mod stake;
 mod submission;
 pub mod templates;
 mod types;
-mod query;
 
 use admin::{
     get_admin, get_admin_config, get_pause_info, init_admin, is_trading_paused, require_not_paused,
@@ -23,13 +24,13 @@ use admin::{
 };
 use errors::{AdminError, TemplateError};
 pub use leaderboard::{get_leaderboard, LeaderboardMetric, ProviderLeaderboard};
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Map, String, Vec};
 use stellar_swipe_common::{validate_asset_pair as validate_asset_pair_common, AssetPairError};
-use types::{
-    Asset, FeeBreakdown, ProviderPerformance, Signal, SignalAction, SignalPerformanceView,
-    SignalStatus, TradeExecution, SortOption, SignalSummary
-};
 use templates::{SignalTemplate, DEFAULT_TEMPLATE_EXPIRY_HOURS};
+use types::{
+    Asset, FeeBreakdown, ImportResultView, ProviderPerformance, Signal, SignalAction,
+    SignalPerformanceView, SignalStatus, SignalSummary, SortOption, TradeExecution,
+};
 
 const MAX_EXPIRY_SECONDS: u64 = 30 * 24 * 60 * 60;
 
@@ -45,6 +46,7 @@ pub enum StorageKey {
     TradeExecutions,
     TemplateCounter,
     Templates,
+    ExternalIdMappings,
 }
 
 #[contractimpl]
@@ -344,22 +346,24 @@ impl SignalRegistry {
     ) -> Result<u64, TemplateError> {
         submitter.require_auth();
 
-        let template = templates::get_template(&env, template_id).ok_or(TemplateError::TemplateNotFound)?;
+        let template =
+            templates::get_template(&env, template_id).ok_or(TemplateError::TemplateNotFound)?;
         if !template.is_public && template.provider != submitter {
             return Err(TemplateError::PrivateTemplate);
         }
 
         let asset_pair = match template.asset_pair {
             Some(pair) => pair,
-            None => templates::get_variable(&variables, "asset_pair")?.ok_or(TemplateError::MissingVariable)?,
+            None => templates::get_variable(&variables, "asset_pair")?
+                .ok_or(TemplateError::MissingVariable)?,
         };
         Self::validate_asset_pair(&env, &asset_pair).map_err(|_| TemplateError::InvalidTemplate)?;
 
         let action = match template.action {
             Some(template_action) => templates::parse_action(&template_action)?,
             None => {
-                let action_text =
-                    templates::get_variable(&variables, "action")?.ok_or(TemplateError::MissingVariable)?;
+                let action_text = templates::get_variable(&variables, "action")?
+                    .ok_or(TemplateError::MissingVariable)?;
                 templates::parse_action(&action_text)?
             }
         };
@@ -368,7 +372,8 @@ impl SignalRegistry {
             templates::get_variable(&variables, "price")?.ok_or(TemplateError::MissingVariable)?;
         let price = templates::parse_price(&price_text)?;
 
-        let rationale = templates::replace_variables(&env, &template.rationale_template, &variables)?;
+        let rationale =
+            templates::replace_variables(&env, &template.rationale_template, &variables)?;
 
         let expiry = env
             .ledger()
@@ -380,13 +385,7 @@ impl SignalRegistry {
         }
 
         let signal_id = Self::create_signal_internal(
-            &env,
-            submitter,
-            asset_pair,
-            action,
-            price,
-            rationale,
-            expiry,
+            &env, submitter, asset_pair, action, price, rationale, expiry,
         )
         .map_err(|_| TemplateError::InvalidTemplate)?;
 
@@ -626,9 +625,13 @@ impl SignalRegistry {
         query::get_active_signals(&env, &signals_map, provider, offset, limit, sort_by)
     }
 
-    /// Legacy fallback if front-ends rely on Old behavior 
+    /// Legacy fallback if front-ends rely on Old behavior
     /// (Wait, let's keep it as another name if needed, or just let users migrate to the new `get_active_signals`)
-    pub fn get_active_signals_archived(env: Env, user: Address, followed_only: bool) -> Vec<Signal> {
+    pub fn get_active_signals_archived(
+        env: Env,
+        user: Address,
+        followed_only: bool,
+    ) -> Vec<Signal> {
         let signals = Self::get_signals_map(&env);
         if followed_only {
             let followed = social::get_followed_providers(&env, &user);
@@ -688,7 +691,57 @@ impl SignalRegistry {
         let signals = Self::get_signals_map(&env);
         expiry::count_signals_pending_expiry(&env, &signals)
     }
+
+    /* =========================
+       SIGNAL IMPORT FUNCTIONS
+    ========================== */
+
+    /// Import signals from CSV format
+    pub fn import_signals_csv(
+        env: Env,
+        provider: Address,
+        data: Bytes,
+        validate_only: bool,
+    ) -> ImportResultView {
+        provider.require_auth();
+
+        let result = import::import_signals_csv(&env, &provider, data, validate_only);
+
+        ImportResultView {
+            success_count: result.success_count,
+            error_count: result.error_count,
+            signal_ids: Vec::new(&env),
+        }
+    }
+
+    /// Import signals from JSON format
+    pub fn import_signals_json(
+        env: Env,
+        provider: Address,
+        data: Bytes,
+        validate_only: bool,
+    ) -> ImportResultView {
+        provider.require_auth();
+
+        let result = import::import_signals_json(&env, &provider, data, validate_only);
+
+        ImportResultView {
+            success_count: result.success_count,
+            error_count: result.error_count,
+            signal_ids: Vec::new(&env),
+        }
+    }
+
+    /// Get signal ID by external ID
+    pub fn get_signal_by_external_id(
+        env: Env,
+        provider: Address,
+        external_id: String,
+    ) -> Option<u64> {
+        import::get_signal_by_external_id(&env, &provider, &external_id)
+    }
 }
 
 mod test;
+mod test_import;
 mod test_performance;

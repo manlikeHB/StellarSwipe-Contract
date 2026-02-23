@@ -83,7 +83,7 @@ fn test_reputation_calculation_accurate_oracle() {
     assert_eq!(rep1.total_submissions, 1);
     assert_eq!(rep2.total_submissions, 1);
     assert_eq!(rep3.total_submissions, 1);
-    
+
     // Oracle3 has highest deviation
     assert!(rep3.avg_deviation > rep1.avg_deviation);
 }
@@ -153,15 +153,15 @@ fn test_oracle_removal_for_poor_performance() {
     for i in 0..50 {
         client.submit_price(&oracle1, &100_000_000);
         client.submit_price(&oracle2, &101_000_000);
-        
+
         // Check if oracle3 still has weight before submitting
         let rep3 = client.get_oracle_reputation(&oracle3);
         if rep3.weight > 0 {
             client.submit_price(&oracle3, &200_000_000);
         }
-        
+
         client.calculate_consensus();
-        
+
         // Break early if oracle3 is already at weight 0
         if i > 10 && rep3.weight == 0 {
             break;
@@ -169,7 +169,7 @@ fn test_oracle_removal_for_poor_performance() {
     }
 
     let rep3 = client.get_oracle_reputation(&oracle3);
-    
+
     // Oracle3 should eventually have weight 0 due to poor performance
     assert_eq!(rep3.weight, 0);
 }
@@ -230,7 +230,7 @@ fn test_weighted_median() {
     }
 
     let rep1 = client.get_oracle_reputation(&oracle1);
-    
+
     // Oracle1 should have built up good reputation
     assert!(rep1.weight >= 1);
     assert_eq!(rep1.total_submissions, 10);
@@ -249,13 +249,13 @@ fn test_minimum_oracles_maintained() {
 
     let oracles_before = client.get_oracles();
     assert_eq!(oracles_before.len(), 3);
-    
+
     // All oracles submit terrible data
     for i in 0..50 {
         let rep1 = client.get_oracle_reputation(&oracle1);
         let rep2 = client.get_oracle_reputation(&oracle2);
         let rep3 = client.get_oracle_reputation(&oracle3);
-        
+
         // Only submit if oracle still has weight
         if rep1.weight > 0 {
             client.submit_price(&oracle1, &200_000_000);
@@ -266,12 +266,12 @@ fn test_minimum_oracles_maintained() {
         if rep3.weight > 0 {
             client.submit_price(&oracle3, &400_000_000);
         }
-        
+
         // Need at least one submission to calculate consensus
         if rep1.weight == 0 && rep2.weight == 0 && rep3.weight == 0 {
             break;
         }
-        
+
         client.calculate_consensus();
     }
 
