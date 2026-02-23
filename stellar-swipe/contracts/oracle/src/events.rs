@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, symbol_short};
+use soroban_sdk::{symbol_short, Address, Env};
 
 pub fn emit_oracle_removed(env: &Env, oracle: Address, reason: &str) {
     env.events().publish(
@@ -7,7 +7,13 @@ pub fn emit_oracle_removed(env: &Env, oracle: Address, reason: &str) {
     );
 }
 
-pub fn emit_weight_adjusted(env: &Env, oracle: Address, old_weight: u32, new_weight: u32, reputation: u32) {
+pub fn emit_weight_adjusted(
+    env: &Env,
+    oracle: Address,
+    old_weight: u32,
+    new_weight: u32,
+    reputation: u32,
+) {
     env.events().publish(
         (symbol_short!("weight"), symbol_short!("adjusted")),
         (oracle, old_weight, new_weight, reputation),

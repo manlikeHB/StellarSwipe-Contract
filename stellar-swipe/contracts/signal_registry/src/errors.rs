@@ -60,3 +60,18 @@ pub enum TemplateError {
     InvalidAction = 305,
     InvalidExpiry = 306,
 }
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum ImportError {
+    InvalidFormat = 400,
+    InvalidAssetPair = 401,
+    InvalidPrice = 402,
+    InvalidAction = 403,
+    InvalidRationale = 404,
+    InvalidExpiry = 405,
+    BatchSizeExceeded = 406,
+    EmptyData = 407,
+    ParseError = 408,
+}

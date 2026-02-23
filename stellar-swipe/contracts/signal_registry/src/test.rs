@@ -885,7 +885,10 @@ fn test_create_template_with_variables() {
     let template = client.get_template(&template_id).unwrap();
     assert_eq!(template.id, template_id);
     assert_eq!(template.provider, provider);
-    assert_eq!(template.asset_pair, Some(String::from_str(&env, "BTC/USDC")));
+    assert_eq!(
+        template.asset_pair,
+        Some(String::from_str(&env, "BTC/USDC"))
+    );
     assert_eq!(template.use_count, 0);
 }
 
@@ -985,7 +988,8 @@ fn test_share_template_and_submit_from_another_provider() {
             ("price", "90000"),
         ],
     );
-    let private_result = client.try_submit_from_template(&other_provider, &template_id, &private_vars);
+    let private_result =
+        client.try_submit_from_template(&other_provider, &template_id, &private_vars);
     assert!(private_result.is_err());
 
     // Share publicly and submit successfully from another provider

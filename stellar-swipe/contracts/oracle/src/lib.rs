@@ -37,7 +37,9 @@ impl OracleContract {
         }
 
         oracles.push_back(oracle.clone());
-        env.storage().persistent().set(&StorageKey::Oracles, &oracles);
+        env.storage()
+            .persistent()
+            .set(&StorageKey::Oracles, &oracles);
 
         // Initialize with default reputation
         let stats = OracleReputation {
@@ -126,7 +128,13 @@ impl OracleContract {
 
             if new_weight != old_weight {
                 let reputation = calculate_reputation(&env, &oracle);
-                events::emit_weight_adjusted(&env, oracle.clone(), old_weight, new_weight, reputation);
+                events::emit_weight_adjusted(
+                    &env,
+                    oracle.clone(),
+                    old_weight,
+                    new_weight,
+                    reputation,
+                );
             }
 
             if should_remove_oracle(&env, &oracle) {
@@ -154,9 +162,10 @@ impl OracleContract {
             .set(&StorageKey::ConsensusPrice, &consensus_data);
 
         // Clear submissions for next round
-        env.storage()
-            .instance()
-            .set(&StorageKey::PriceSubmissions, &Vec::<PriceSubmission>::new(&env));
+        env.storage().instance().set(
+            &StorageKey::PriceSubmissions,
+            &Vec::<PriceSubmission>::new(&env),
+        );
 
         events::emit_consensus_reached(&env, consensus_price, submissions.len());
 
