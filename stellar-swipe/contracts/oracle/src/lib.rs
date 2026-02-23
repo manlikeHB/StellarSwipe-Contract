@@ -1,6 +1,10 @@
 #![no_std]
 
  feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
+ feature/oracle-price-conversion
+ main
 mod conversion;
 mod errors;
 mod storage;
@@ -23,7 +27,11 @@ use reputation::{
     slash_oracle, track_oracle_accuracy, SlashReason,
 };
 use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
+ feature/signal-categorization-tagging
 use types::{ConsensusPriceData, OracleReputation, PriceSubmission, StorageKey};
+ main
+=======
+use types::{ConsensusPriceData, OracleReputation, PriceSubmission, StorageKey}; main
  main
 
 #[contract]
@@ -32,6 +40,10 @@ pub struct OracleContract;
 #[contractimpl]
 impl OracleContract {
  feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
+ feature/oracle-price-conversion
+ main
     /// Initialize oracle with base currency
     pub fn initialize(env: Env, admin: Address, base_currency: Asset) {
         storage::set_base_currency(&env, base_currency);

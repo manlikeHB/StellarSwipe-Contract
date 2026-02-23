@@ -2,7 +2,10 @@
 
 mod admin;
 mod analytics;
+ feature/signal-categorization-tagging
 mod categories;
+=======
+ main
 mod errors;
 #[allow(deprecated)]
 mod events;
@@ -732,6 +735,10 @@ impl SignalRegistry {
 
     /* =========================
  feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
+ feature/analytics-system
+ main
        ANALYTICS FUNCTIONS
     ========================== */
 
@@ -754,6 +761,7 @@ impl SignalRegistry {
     pub fn get_global_analytics(env: Env) -> analytics::GlobalAnalytics {
         let signals = Self::get_signals_map(&env);
         analytics::calculate_global_analytics(&env, &signals)
+ feature/signal-categorization-tagging
     }
     
     /* =========================
@@ -907,6 +915,8 @@ impl SignalRegistry {
     pub fn suggest_tags(env: Env, rationale: String) -> Vec<String> {
         categories::auto_suggest_tags(&env, &rationale)
 =======
+ main
+=======
        SIGNAL IMPORT FUNCTIONS
     ========================== */
 
@@ -959,8 +969,13 @@ impl SignalRegistry {
 
 mod test;
  feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
 mod test_analytics;
 mod test_categories;
+=======
+ feature/analytics-system
+mod test_analytics;
+ main
 =======
 mod test_import;
  main

@@ -1,6 +1,10 @@
 [package]
 name = "oracle"
  feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
+ feature/oracle-price-conversion
+ main
 version = "0.1.0"
 edition = "2021"
 
@@ -30,4 +34,8 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+ feature/signal-categorization-tagging
 main
+=======
+ main
+ main

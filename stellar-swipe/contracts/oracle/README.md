@@ -1,4 +1,8 @@
  feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
+ feature/oracle-price-conversion
+ main
 # Oracle Contract - Price Conversion System
 
 ## Overview
@@ -16,7 +20,10 @@ The Oracle contract provides a price conversion system that translates any asset
 
 ## Architecture
 
+ feature/signal-categorization-tagging
 ```
+=======
+ main
 contracts/oracle/
 ├── src/
 │   ├── lib.rs          # Contract interface
@@ -25,7 +32,11 @@ contracts/oracle/
 │   └── errors.rs       # Error types
 ├── Cargo.toml
 └── Makefile
+ feature/signal-categorization-tagging
 ```
+=======
+
+ main
 
 ## Key Functions
 
@@ -255,6 +266,10 @@ The contract emits the following events:
 
 ```bash
  feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
+ feature/oracle-price-conversion
+ main
 cd contracts/oracle
 make build
 ```

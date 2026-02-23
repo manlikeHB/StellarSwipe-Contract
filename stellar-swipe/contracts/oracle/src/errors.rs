@@ -1,4 +1,8 @@
+ feature/signal-categorization-tagging
 feature/signal-categorization-tagging
+=======
+ feature/oracle-price-conversion
+ main
 //! Oracle error types
 
 =======
@@ -9,6 +13,10 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum OracleError {
  feature/signal-categorization-tagging
+ feature/signal-categorization-tagging
+=======
+ feature/oracle-price-conversion
+ main
     PriceNotFound = 1,
     NoConversionPath = 2,
     InvalidPath = 3,
