@@ -47,3 +47,16 @@ pub enum PerformanceError {
     SignalExpired = 204,
     NoExecutions = 205,
 }
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum TemplateError {
+    TemplateNotFound = 300,
+    Unauthorized = 301,
+    PrivateTemplate = 302,
+    MissingVariable = 303,
+    InvalidTemplate = 304,
+    InvalidAction = 305,
+    InvalidExpiry = 306,
+}

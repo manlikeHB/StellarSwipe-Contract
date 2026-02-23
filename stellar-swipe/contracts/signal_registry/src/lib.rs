@@ -13,13 +13,14 @@ mod performance;
 mod social;
 mod stake;
 mod submission;
+pub mod templates;
 mod types;
 
 use admin::{
     get_admin, get_admin_config, get_pause_info, init_admin, is_trading_paused, require_not_paused,
     AdminConfig, PauseInfo,
 };
-use errors::AdminError;
+use errors::{AdminError, TemplateError};
 pub use leaderboard::{get_leaderboard, LeaderboardMetric, ProviderLeaderboard};
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, String, Vec};
 use stellar_swipe_common::{validate_asset_pair as validate_asset_pair_common, AssetPairError};
@@ -27,6 +28,7 @@ use types::{
     Asset, FeeBreakdown, ProviderPerformance, Signal, SignalAction, SignalPerformanceView,
     SignalStatus, TradeExecution,
 };
+use templates::{SignalTemplate, DEFAULT_TEMPLATE_EXPIRY_HOURS};
 
 const MAX_EXPIRY_SECONDS: u64 = 30 * 24 * 60 * 60;
 
@@ -40,6 +42,8 @@ pub enum StorageKey {
     Signals,
     ProviderStats,
     TradeExecutions,
+    TemplateCounter,
+    Templates,
 }
 
 #[contractimpl]
@@ -210,12 +214,23 @@ impl SignalRegistry {
         rationale: String,
         expiry: u64,
     ) -> Result<u64, AdminError> {
-        // Check if trading is paused
-        require_not_paused(&env)?;
-
         provider.require_auth();
+        Self::create_signal_internal(&env, provider, asset_pair, action, price, rationale, expiry)
+    }
 
-        Self::validate_asset_pair(&env, &asset_pair)?;
+    fn create_signal_internal(
+        env: &Env,
+        provider: Address,
+        asset_pair: String,
+        action: SignalAction,
+        price: i128,
+        rationale: String,
+        expiry: u64,
+    ) -> Result<u64, AdminError> {
+        // Check if trading is paused
+        require_not_paused(env)?;
+
+        Self::validate_asset_pair(env, &asset_pair)?;
 
         let now = env.ledger().timestamp();
 
@@ -227,7 +242,7 @@ impl SignalRegistry {
             panic!("expiry exceeds max 30 days");
         }
 
-        let id = Self::next_signal_id(&env);
+        let id = Self::next_signal_id(env);
 
         let signal = Signal {
             id,
@@ -246,15 +261,15 @@ impl SignalRegistry {
         };
 
         // Store signal
-        let mut signals = Self::get_signals_map(&env);
+        let mut signals = Self::get_signals_map(env);
         signals.set(id, signal);
-        Self::save_signals_map(&env, &signals);
+        Self::save_signals_map(env, &signals);
 
         // Initialize provider stats on first submission
-        let mut stats = Self::get_provider_stats_map(&env);
+        let mut stats = Self::get_provider_stats_map(env);
         if !stats.contains_key(provider.clone()) {
             stats.set(provider, ProviderPerformance::default());
-            Self::save_provider_stats_map(&env, &stats);
+            Self::save_provider_stats_map(env, &stats);
         }
 
         Ok(id)
@@ -268,6 +283,113 @@ impl SignalRegistry {
     pub fn get_provider_stats(env: Env, provider: Address) -> Option<ProviderPerformance> {
         let stats = Self::get_provider_stats_map(&env);
         stats.get(provider)
+    }
+
+    pub fn create_template(
+        env: Env,
+        provider: Address,
+        name: String,
+        asset_pair: Option<String>,
+        rationale_template: String,
+    ) -> Result<u64, TemplateError> {
+        provider.require_auth();
+
+        if name.len() == 0 || rationale_template.len() == 0 {
+            return Err(TemplateError::InvalidTemplate);
+        }
+
+        if let Some(ref pair) = asset_pair {
+            Self::validate_asset_pair(&env, pair).map_err(|_| TemplateError::InvalidTemplate)?;
+        }
+
+        let template_id = templates::get_next_template_id(&env);
+
+        let template = SignalTemplate {
+            id: template_id,
+            provider: provider.clone(),
+            name,
+            asset_pair,
+            action: None,
+            rationale_template,
+            default_expiry_hours: DEFAULT_TEMPLATE_EXPIRY_HOURS,
+            is_public: false,
+            use_count: 0,
+        };
+
+        templates::store_template(&env, template_id, &template);
+        Ok(template_id)
+    }
+
+    pub fn set_template_public(
+        env: Env,
+        provider: Address,
+        template_id: u64,
+        is_public: bool,
+    ) -> Result<(), TemplateError> {
+        provider.require_auth();
+        templates::set_template_visibility(&env, &provider, template_id, is_public)
+    }
+
+    pub fn get_template(env: Env, template_id: u64) -> Option<SignalTemplate> {
+        templates::get_template(&env, template_id)
+    }
+
+    pub fn submit_from_template(
+        env: Env,
+        submitter: Address,
+        template_id: u64,
+        variables: Map<String, String>,
+    ) -> Result<u64, TemplateError> {
+        submitter.require_auth();
+
+        let template = templates::get_template(&env, template_id).ok_or(TemplateError::TemplateNotFound)?;
+        if !template.is_public && template.provider != submitter {
+            return Err(TemplateError::PrivateTemplate);
+        }
+
+        let asset_pair = match template.asset_pair {
+            Some(pair) => pair,
+            None => templates::get_variable(&variables, "asset_pair")?.ok_or(TemplateError::MissingVariable)?,
+        };
+        Self::validate_asset_pair(&env, &asset_pair).map_err(|_| TemplateError::InvalidTemplate)?;
+
+        let action = match template.action {
+            Some(template_action) => templates::parse_action(&template_action)?,
+            None => {
+                let action_text =
+                    templates::get_variable(&variables, "action")?.ok_or(TemplateError::MissingVariable)?;
+                templates::parse_action(&action_text)?
+            }
+        };
+
+        let price_text =
+            templates::get_variable(&variables, "price")?.ok_or(TemplateError::MissingVariable)?;
+        let price = templates::parse_price(&price_text)?;
+
+        let rationale = templates::replace_variables(&env, &template.rationale_template, &variables)?;
+
+        let expiry = env
+            .ledger()
+            .timestamp()
+            .checked_add((template.default_expiry_hours as u64) * 60 * 60)
+            .ok_or(TemplateError::InvalidExpiry)?;
+        if expiry > env.ledger().timestamp() + MAX_EXPIRY_SECONDS {
+            return Err(TemplateError::InvalidExpiry);
+        }
+
+        let signal_id = Self::create_signal_internal(
+            &env,
+            submitter,
+            asset_pair,
+            action,
+            price,
+            rationale,
+            expiry,
+        )
+        .map_err(|_| TemplateError::InvalidTemplate)?;
+
+        templates::increment_template_use_count(&env, template_id)?;
+        Ok(signal_id)
     }
 
     /* =========================
