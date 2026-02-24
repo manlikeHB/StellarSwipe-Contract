@@ -23,6 +23,7 @@ pub struct PriceSubmission {
 #[derive(Clone)]
 pub enum StorageKey {
     Admin,
+    PriceMap(AssetPair),
     OracleStats,
     Oracles,
     PriceSubmissions,

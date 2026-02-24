@@ -472,7 +472,93 @@ mod tests {
             .persistent()
             .set(&StorageKey::Oracles, &new_oracles);
     }
-}
+
+    /// returns aggregated price
+    pub fn get_price(env: Env, pair: AssetPair) -> Result<i128, OracleError> {
+        let (price, _) = Self::get_price_with_confidence(env, pair)?;
+        Ok(price)
+    }
+
+    pub fn get_price_with_confidence(env: Env, pair: AssetPair) -> Result<(i128, u32), OracleError> {
+        let key = StorageKey::PriceMap(pair.clone());
+        let prices: Vec<PriceData> = env.storage().temporary().get(&key).ok_or(OracleError::PriceNotFound)?;
+
+        let current_time = env.ledger().timestamp();
+        let mut fresh_prices: Vec<PriceData> = Vec::new(&env);
+
+        // 1. Filter stale prices (TTL: 300s / 5 mins)
+        for p in prices.iter() {
+            if current_time.saturating_sub(p.timestamp) < 300 {
+                fresh_prices.push_back(p);
+            }
+        }
+
+        if fresh_prices.is_empty() {
+            return Err(OracleError::StalePrice);
+        }
+
+        // 2. Median Aggregation
+        // Sort by price
+        let mut sorted = fresh_prices;
+        let len = sorted.len();
+        for i in 0..len {
+            for j in 0..(len - i - 1) {
+                if sorted.get(j).unwrap().price > sorted.get(j + 1).unwrap().price {
+                    let temp = sorted.get(j).unwrap();
+                    sorted.set(j, sorted.get(j + 1).unwrap());
+                    sorted.set(j + 1, temp);
+                }
+            }
+        }
+
+        let median_data = sorted.get(len / 2).unwrap();
+        
+        // 3. Check for 10% deviation (Edge Case)
+        let min_p = sorted.get(0).unwrap().price;
+        let max_p = sorted.get(len - 1).unwrap().price;
+        if (max_p - min_p) * 100 / min_p > 10 {
+            // Price sources disagree by > 10%
+            return Err(OracleError::UnreliablePrice); 
+        }
+
+        Ok((median_data.price, median_data.confidence))
+    }
+
+    pub fn add_price_source(env: Env, admin: Address, source: Address, weight: u32) -> Result<(), OracleError> {
+        admin.require_auth();
+        // Check if caller is admin (logic from your existing lib.rs)
+        Self::is_admin(&env, &admin)?;
+        
+        env.storage().persistent().set(&StorageKey::OracleWeight(source), &weight);
+        Ok(())
+    }
+
+    pub fn submit_price(env: Env, source: Address, pair: AssetPair, price: i128, confidence: u32) -> Result<(), OracleError> {
+        source.require_auth();
+        
+        // Ensure source is a registered oracle
+        let weight: u32 = env.storage().persistent().get(&StorageKey::OracleWeight(source.clone())).unwrap_or(0);
+        if weight == 0 { return Err(OracleError::Unauthorized); }
+
+        let key = StorageKey::PriceMap(pair.clone());
+        let mut prices: Vec<PriceData> = env.storage().temporary().get(&key).unwrap_or(Vec::new(&env));
+
+        let new_entry = PriceData {
+            asset_pair: pair,
+            price,
+            timestamp: env.ledger().timestamp(),
+            source,
+            confidence,
+        };
+
+        prices.push_back(new_entry);
+        
+        // Cache management: Keep prices for 5 mins
+        env.storage().temporary().set(&key, &prices);
+        env.storage().temporary().extend_ttl(&key, 60, 60); 
+        
+        Ok(())
+    }
 
 #[cfg(test)]
 mod test;
