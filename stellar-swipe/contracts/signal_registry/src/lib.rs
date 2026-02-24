@@ -6,6 +6,7 @@ mod analytics;
 mod categories;
 =======
  main
+mod collaboration;
 mod errors;
 #[allow(deprecated)]
 mod events;
@@ -282,6 +283,8 @@ impl SignalRegistry {
             category,
             tags: unique_tags.clone(),
             risk_level,
+            // Collaboration field
+            is_collaborative: false,
         };
 
         // Store signal
@@ -965,6 +968,91 @@ impl SignalRegistry {
         import::get_signal_by_external_id(&env, &provider, &external_id)
  main
     }
+
+    /* =========================
+       COLLABORATION FUNCTIONS
+    ========================== */
+
+    pub fn create_collaborative_signal(
+        env: Env,
+        primary_author: Address,
+        co_authors: Vec<Address>,
+        contribution_pcts: Vec<u32>,
+        asset_pair: String,
+        action: SignalAction,
+        price: i128,
+        rationale: String,
+        expiry: u64,
+        category: SignalCategory,
+        tags: Vec<String>,
+        risk_level: RiskLevel,
+    ) -> Result<u64, AdminError> {
+        primary_author.require_auth();
+
+        let signal_id = Self::create_signal_internal(
+            &env,
+            primary_author.clone(),
+            asset_pair,
+            action,
+            price,
+            rationale,
+            expiry,
+            category,
+            tags,
+            risk_level,
+        )?;
+
+        let mut signals = Self::get_signals_map(&env);
+        let mut signal = signals.get(signal_id).unwrap();
+        signal.is_collaborative = true;
+        signal.status = SignalStatus::Pending;
+        signals.set(signal_id, signal);
+        Self::save_signals_map(&env, &signals);
+
+        collaboration::create_collaborative_signal(
+            &env,
+            signal_id,
+            primary_author,
+            co_authors.clone(),
+            contribution_pcts,
+        )?;
+
+        events::emit_collaborative_signal_created(&env, signal_id, co_authors);
+        Ok(signal_id)
+    }
+
+    pub fn approve_collaborative_signal(
+        env: Env,
+        signal_id: u64,
+        approver: Address,
+    ) -> Result<(), AdminError> {
+        approver.require_auth();
+
+        let all_approved = collaboration::approve_collaborative_signal(&env, signal_id, &approver)?;
+        events::emit_collaborative_signal_approved(&env, signal_id, approver);
+
+        if all_approved {
+            let mut signals = Self::get_signals_map(&env);
+            let mut signal = signals.get(signal_id).ok_or(AdminError::InvalidParameter)?;
+            signal.status = SignalStatus::Active;
+            signals.set(signal_id, signal);
+            Self::save_signals_map(&env, &signals);
+            events::emit_collaborative_signal_published(&env, signal_id);
+        }
+
+        Ok(())
+    }
+
+    pub fn get_collaboration_details(
+        env: Env,
+        signal_id: u64,
+    ) -> Option<Vec<collaboration::Author>> {
+        collaboration::get_collaborative_signal(&env, signal_id)
+    }
+
+    pub fn is_collaborative_signal(env: Env, signal_id: u64) -> bool {
+        collaboration::is_collaborative_signal(&env, signal_id)
+    }
 }
 
 mod test;
@@ -980,3 +1068,4 @@ mod test_analytics;
 mod test_import;
  main
 mod test_performance;
+mod test_collaboration;

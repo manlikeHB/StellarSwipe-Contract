@@ -75,3 +75,14 @@ pub enum ImportError {
     EmptyData = 407,
     ParseError = 408,
 }
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum CollaborationError {
+    NotCoAuthor = 500,
+    AlreadyApproved = 501,
+    InvalidContributions = 502,
+    NotCollaborative = 503,
+    PendingApproval = 504,
+}

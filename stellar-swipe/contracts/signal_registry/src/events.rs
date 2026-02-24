@@ -107,3 +107,18 @@ pub fn emit_tags_added(env: &Env, signal_id: u64, provider: Address, tag_count: 
     let topics = (Symbol::new(env, "tags_added"), signal_id, provider);
     env.events().publish(topics, tag_count);
 }
+
+pub fn emit_collaborative_signal_created(env: &Env, signal_id: u64, authors: Vec<Address>) {
+    let topics = (Symbol::new(env, "collab_signal_created"), signal_id);
+    env.events().publish(topics, authors);
+}
+
+pub fn emit_collaborative_signal_approved(env: &Env, signal_id: u64, approver: Address) {
+    let topics = (Symbol::new(env, "collab_signal_approved"), signal_id, approver);
+    env.events().publish(topics, ());
+}
+
+pub fn emit_collaborative_signal_published(env: &Env, signal_id: u64) {
+    let topics = (Symbol::new(env, "collab_signal_published"), signal_id);
+    env.events().publish(topics, ());
+}

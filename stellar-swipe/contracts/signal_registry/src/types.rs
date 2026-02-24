@@ -66,6 +66,8 @@ pub struct Signal {
     pub total_volume: i128,         // Cumulative volume across all executions
     pub total_roi: i128,            // Cumulative ROI in basis points (10000 = 100%)
  main
+    // Collaboration fields
+    pub is_collaborative: bool,
 }
 
 #[contracttype]
